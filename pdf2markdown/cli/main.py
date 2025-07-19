@@ -16,6 +16,7 @@ from pdf2markdown.cli.argument_parser import create_argument_parser
 from pdf2markdown.cli.output_handler import create_output_handler
 from pdf2markdown.core.config import ApplicationConfig
 from pdf2markdown.core.config import config_manager
+from pdf2markdown.core.dependency_injection import DependencyInjectionContainer, create_default_container
 from pdf2markdown.core.exceptions import ConfigurationError
 from pdf2markdown.core.exceptions import FileSystemError
 from pdf2markdown.core.exceptions import InvalidPdfError
@@ -23,6 +24,7 @@ from pdf2markdown.core.exceptions import PdfToMarkdownError
 from pdf2markdown.core.exceptions import ProcessingError
 from pdf2markdown.core.exceptions import ValidationError
 from pdf2markdown.core.file_validator import create_file_validator
+from pdf2markdown.domain.interfaces import FormatterInterface, HeadingDetectorInterface, PdfParserStrategy
 
 
 class PdfToMarkdownCli:
@@ -33,17 +35,28 @@ class PdfToMarkdownCli:
     the application lifecycle.
     """
 
-    def __init__(self, config: Optional[ApplicationConfig] = None) -> None:
-        """Initialize CLI application.
+    def __init__(
+        self, 
+        config: Optional[ApplicationConfig] = None,
+        container: Optional[DependencyInjectionContainer] = None
+    ) -> None:
+        """Initialize CLI application with dependency injection.
         
         Args:
             config: Optional application configuration (uses default if None)
+            container: Optional dependency injection container (creates default if None)
         """
         self._config = config or config_manager.get_config()
+        self._container = container or create_default_container(self._config)
         self._logger = self._setup_logging()
         self._argument_parser = create_argument_parser(self._config)
         self._file_validator = create_file_validator(self._config)
         self._output_handler = create_output_handler(self._config)
+
+        # Resolve dependencies through dependency injection
+        self._pdf_parser = self._container.resolve(PdfParserStrategy)
+        self._heading_detector = self._container.resolve(HeadingDetectorInterface)
+        self._markdown_formatter = self._container.resolve(FormatterInterface)
 
     def run(self, args: Optional[list] = None) -> int:
         """Run the CLI application with given arguments.
@@ -157,30 +170,46 @@ class PdfToMarkdownCli:
         Raises:
             ProcessingError: If processing fails
         """
-        # TODO: This is a placeholder implementation
-        # In the next stories, this will delegate to the actual PDF processing pipeline
-
         if not cli_args.quiet:
             self._output_handler.info(f"Processing {cli_args.input_file}...")
 
-        # For now, create a simple placeholder output
         try:
-            with open(cli_args.output_file, 'w', encoding='utf-8') as f:
-                f.write(f"# Converted from {cli_args.input_file.name}\n\n")
-                f.write("This is a placeholder output from the CLI implementation.\n")
-                f.write("Actual PDF processing will be implemented in subsequent stories.\n\n")
-                f.write(f"- Input file: {cli_args.input_file}\n")
-                f.write(f"- Output file: {cli_args.output_file}\n")
-                f.write("- Processing time: [placeholder]\n")
-                f.write(f"- File size: {cli_args.input_file.stat().st_size} bytes\n")
+            # Step 1: Parse PDF document
+            self._logger.debug("Parsing PDF document...")
+            document = self._pdf_parser.parse_document(cli_args.input_file)
+            self._logger.info(f"Extracted {len(document.blocks)} text blocks from PDF")
 
-            self._logger.info(f"Created placeholder output: {cli_args.output_file}")
+            # Step 2: Detect headings in the document
+            self._logger.debug("Detecting headings...")
+            document_with_headings = self._heading_detector.detect_headings_in_document(document)
+
+            # Count headings for logging
+            heading_count = sum(1 for block in document_with_headings.blocks
+                              if hasattr(block, 'level'))
+            self._logger.info(f"Detected {heading_count} headings in document")
+
+            # Step 3: Format to Markdown
+            self._logger.debug("Formatting to Markdown...")
+            self._markdown_formatter.format_to_file(document_with_headings, str(cli_args.output_file))
+
+            self._logger.info(f"Successfully created Markdown output: {cli_args.output_file}")
 
         except OSError as e:
             raise FileSystemError(
-                f"Cannot write output file: {e}",
-                operation="write",
-                file_path=str(cli_args.output_file)
+                f"File operation failed: {e}",
+                operation="process",
+                file_path=str(cli_args.input_file)
+            ) from e
+        except ValueError as e:
+            raise InvalidPdfError(
+                f"Invalid PDF format: {e}",
+                file_path=str(cli_args.input_file)
+            ) from e
+        except Exception as e:
+            raise ProcessingError(
+                f"PDF processing failed: {e}",
+                stage="convert",
+                file_path=str(cli_args.input_file)
             ) from e
 
     def _setup_logging(self) -> logging.Logger:

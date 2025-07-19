@@ -1,0 +1,293 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf2markdown"
+version = "1.0.0"
+description = "Convert PDF documents to clean, structured Markdown format"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "PdfToMarkdown Development Team", email = "dev@pdf2markdown.com"},
+]
+maintainers = [
+    {name = "PdfToMarkdown Development Team", email = "dev@pdf2markdown.com"},
+]
+keywords = [
+    "pdf",
+    "markdown",
+    "conversion",
+    "cli",
+    "document",
+    "parser",
+    "text-extraction"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+
+# Core dependencies (lightweight for fast installation)
+dependencies = [
+    "pdfminer.six>=20231228",  # Pure Python PDF parsing
+    "rich>=13.0.0",           # Enhanced terminal output
+    "typing-extensions>=4.0.0; python_version<'3.10'",  # Backport for older Python
+]
+
+# Optional dependencies for enhanced features
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+    "coverage[toml]>=7.0.0",
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.0.0",
+    "tox>=4.0.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+    "coverage[toml]>=7.0.0",
+]
+lint = [
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.22.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pdf2markdown/pdf2markdown"
+Documentation = "https://pdf2markdown.readthedocs.io"
+Repository = "https://github.com/pdf2markdown/pdf2markdown"
+"Bug Tracker" = "https://github.com/pdf2markdown/pdf2markdown/issues"
+Changelog = "https://github.com/pdf2markdown/pdf2markdown/blob/main/CHANGELOG.md"
+
+[project.scripts]
+pdf2md = "pdf2markdown.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pdf2markdown*"]
+exclude = ["tests*", "docs*", "examples*"]
+
+[tool.setuptools.package-data]
+pdf2markdown = ["py.typed"]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["pdf2markdown"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "setup.py",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+show_missing = true
+precision = 2
+fail_under = 90
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# Black code formatting
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# Ruff linting configuration
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+    "SIM",  # flake8-simplify
+    "RUF",  # Ruff-specific rules
+    "S",    # flake8-bandit (security)
+    "N",    # pep8-naming
+    "ERA",  # eradicate (commented code)
+    "PL",   # pylint
+    "PERF", # perflint
+]
+ignore = [
+    "E501",   # line too long (handled by black)
+    "B008",   # do not perform function calls in argument defaults
+    "S101",   # use of assert detected (allow in tests)
+    "PLR0913", # too many arguments
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+]
+
+[tool.ruff.per-file-ignores]
+"tests/**/*" = ["S101", "ARG", "PLR2004"]
+"__init__.py" = ["F401"]
+
+[tool.ruff.isort]
+known-first-party = ["pdf2markdown"]
+force-single-line = true
+
+# MyPy type checking
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "pdfminer.*",
+    "rich.*",
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pdf2markdown",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=90",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: marks tests as unit tests (fast, isolated)",
+    "integration: marks tests as integration tests (slower, with dependencies)",
+    "e2e: marks tests as end-to-end tests (slowest, full system)",
+    "slow: marks tests as slow running",
+]
+
+# Tox configuration for multi-environment testing
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+min_version = 4.0
+env_list = py38,py39,py310,py311,py312,lint,type
+
+[testenv]
+description = run unit tests
+package = wheel
+wheel_build_env = .pkg
+deps =
+    pytest>=7.0.0
+    pytest-cov>=4.0.0
+    pytest-mock>=3.10.0
+commands = pytest {posargs}
+
+[testenv:lint]
+description = run linters
+skip_install = true
+deps =
+    ruff
+    black
+commands =
+    ruff check .
+    black --check .
+
+[testenv:type]
+description = run type checks
+deps = 
+    mypy
+    types-all
+commands = mypy .
+
+[testenv:docs]
+description = build documentation
+deps =
+    mkdocs
+    mkdocs-material
+    mkdocstrings[python]
+commands = mkdocs build
+
+[testenv:security]
+description = run security checks
+skip_install = true
+deps = bandit
+commands = bandit -r pdf2markdown/
+"""

@@ -7,6 +7,7 @@ validation and help text generation.
 """
 
 import argparse
+import os
 from pathlib import Path
 from typing import Optional
 from typing import Sequence
@@ -225,14 +226,15 @@ class ArgumentParser:
             argparse.ArgumentTypeError: If file is invalid
         """
         try:
-            path = Path(file_path).resolve()
+            path = Path(file_path)
+            resolved_path = path.resolve()
 
             # Check if file exists
-            if not path.exists():
+            if not resolved_path.exists():
                 raise argparse.ArgumentTypeError(f"File not found: {file_path}")
 
             # Check if it's a regular file
-            if not path.is_file():
+            if not resolved_path.is_file():
                 raise argparse.ArgumentTypeError(f"Not a regular file: {file_path}")
 
             # Check file extension
@@ -243,15 +245,14 @@ class ArgumentParser:
 
             # Check file size
             max_size = self._config.processing.max_file_size_mb * 1024 * 1024
-            if path.stat().st_size > max_size:
+            if resolved_path.stat().st_size > max_size:
                 max_mb = self._config.processing.max_file_size_mb
                 raise argparse.ArgumentTypeError(
                     f"File size exceeds {max_mb}MB limit: {file_path}"
                 )
 
             # Check file permissions
-            import os
-            if not os.access(path, os.R_OK):
+            if not os.access(resolved_path, os.R_OK):
                 raise argparse.ArgumentTypeError(f"File is not readable: {file_path}")
 
             return path

@@ -99,6 +99,10 @@ class PdfToMarkdownCli:
 
             return 0
 
+        except SystemExit as e:
+            # Handle --help and --version which cause SystemExit
+            return int(e.code) if e.code is not None else 0
+
         except KeyboardInterrupt:
             self._output_handler.error("Operation cancelled by user")
             return 130  # Standard exit code for SIGINT

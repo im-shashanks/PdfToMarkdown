@@ -111,13 +111,11 @@ class FileValidator:
         result = FileValidationResult(is_valid=True, file_path=file_path)
 
         try:
+            # Security validation first (checks path patterns regardless of existence)
+            self._validate_file_security(file_path, result)
+
             # Basic file existence and access checks
             self._validate_file_existence(file_path, result)
-            if not result.is_valid:
-                return result
-
-            # Security validation
-            self._validate_file_security(file_path, result)
             if not result.is_valid:
                 return result
 
@@ -147,6 +145,11 @@ class FileValidator:
         result = FileValidationResult(is_valid=True, file_path=output_path)
 
         try:
+            # Security check for output path first
+            self._validate_output_security(output_path, result)
+            if not result.is_valid:
+                return result
+
             # Validate parent directory
             parent_dir = output_path.parent
             if not parent_dir.exists():
@@ -173,9 +176,6 @@ class FileValidator:
                     result.add_error(f"No write permission for file: {output_path}")
                     return result
 
-            # Security check for output path
-            self._validate_output_security(output_path, result)
-
         except Exception as e:
             result.add_error(f"Output validation failed: {e}")
 
@@ -193,7 +193,7 @@ class FileValidator:
             return
 
         if not file_path.is_file():
-            result.add_error(f"Path is not a regular file: {file_path}")
+            result.add_error(f"Not a regular file: {file_path}")
             return
 
         if not os.access(file_path, os.R_OK):
@@ -216,7 +216,8 @@ class FileValidator:
                 result.add_warning("Path contains '..' components")
 
             # Ensure path is within reasonable bounds (not system directories)
-            system_dirs = ['/etc', '/usr/bin', '/bin', '/sbin', '/boot', '/dev', '/proc', '/sys']
+            system_dirs = ['/etc', '/usr/bin', '/bin', '/sbin', '/boot', '/dev', '/proc', '/sys',
+                          '/private/etc', '/private/usr/bin', '/private/bin', '/private/sbin']
             for sys_dir in system_dirs:
                 if str(resolved_path).startswith(sys_dir):
                     result.add_error(f"Access to system directory not allowed: {sys_dir}")
@@ -316,10 +317,11 @@ class FileValidator:
                 result.add_warning("Output path contains '..' components")
 
             # Ensure we're not trying to write to system locations
-            system_dirs = ['/etc', '/usr', '/bin', '/sbin', '/boot', '/dev', '/proc', '/sys']
+            system_dirs = ['/etc', '/usr', '/bin', '/sbin', '/boot', '/dev', '/proc', '/sys',
+                          '/private/etc', '/private/usr', '/private/bin', '/private/sbin']
             for sys_dir in system_dirs:
                 if str(resolved_path).startswith(sys_dir):
-                    result.add_error(f"Cannot write to system directory: {sys_dir}")
+                    result.add_error("Cannot write to system directory")
                     return
 
         except (OSError, RuntimeError) as e:

@@ -17,6 +17,51 @@ from pdf2markdown.core.exceptions import ValidationError
 
 
 @dataclass(frozen=True)
+class ListDetectionConfig:
+    """Configuration for list detection behavior.
+    
+    This value object encapsulates all list detection configuration
+    with validation and default values.
+    """
+    
+    # Detection settings
+    indentation_threshold: float = 10.0  # Points of x-position difference per level
+    continuation_indent_threshold: float = 5.0  # Threshold for continuation detection
+    max_nesting_level: int = 3  # Maximum supported nesting (0-3)
+    
+    # Pattern settings
+    enable_bullet_detection: bool = True
+    enable_numbered_detection: bool = True
+    enable_alphabetic_detection: bool = True
+    enable_roman_detection: bool = True
+    enable_parenthetical_detection: bool = True
+    
+    def __post_init__(self) -> None:
+        """Validate list detection configuration."""
+        self._validate()
+    
+    def _validate(self) -> None:
+        """Validate all configuration values."""
+        if self.indentation_threshold <= 0:
+            raise ValidationError(
+                "indentation_threshold must be positive",
+                field="indentation_threshold"
+            )
+        
+        if self.continuation_indent_threshold <= 0:
+            raise ValidationError(
+                "continuation_indent_threshold must be positive",
+                field="continuation_indent_threshold"
+            )
+        
+        if not 0 <= self.max_nesting_level <= 3:
+            raise ValidationError(
+                "max_nesting_level must be between 0 and 3",
+                field="max_nesting_level"
+            )
+
+
+@dataclass(frozen=True)
 class ProcessingConfig:
     """Configuration for PDF processing behavior.
     
@@ -143,6 +188,7 @@ class ApplicationConfig:
     # Component configurations
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    list_detection: ListDetectionConfig = field(default_factory=ListDetectionConfig)
 
     # Runtime paths
     working_directory: Optional[Path] = None
@@ -242,18 +288,47 @@ class ConfigurationManager:
                 max_log_file_size_mb=self._get_env_int("PDF2MD_LOG_FILE_SIZE_MB", 10),
                 backup_count=self._get_env_int("PDF2MD_LOG_BACKUP_COUNT", 3),
             )
+            
+            # Load list detection configuration
+            list_detection_config = ListDetectionConfig(
+                indentation_threshold=self._get_env_float("PDF2MD_LIST_INDENT_THRESHOLD", 10.0),
+                continuation_indent_threshold=self._get_env_float("PDF2MD_LIST_CONTINUATION_THRESHOLD", 5.0),
+                max_nesting_level=self._get_env_int("PDF2MD_LIST_MAX_NESTING", 3),
+                enable_bullet_detection=self._get_env_bool("PDF2MD_LIST_ENABLE_BULLETS", True),
+                enable_numbered_detection=self._get_env_bool("PDF2MD_LIST_ENABLE_NUMBERED", True),
+                enable_alphabetic_detection=self._get_env_bool("PDF2MD_LIST_ENABLE_ALPHABETIC", True),
+                enable_roman_detection=self._get_env_bool("PDF2MD_LIST_ENABLE_ROMAN", True),
+                enable_parenthetical_detection=self._get_env_bool("PDF2MD_LIST_ENABLE_PARENTHETICAL", True),
+            )
 
             # Create main configuration
             config = ApplicationConfig(
                 debug=self._get_env_bool("PDF2MD_DEBUG", False),
                 processing=processing_config,
                 logging=logging_config,
+                list_detection=list_detection_config,
             )
 
             return config
 
         except Exception as e:
             raise ConfigurationError(f"Failed to load configuration: {e}") from e
+
+    def _get_env_float(self, key: str, default: float) -> float:
+        """Get float value from environment with fallback.
+        
+        Args:
+            key: Environment variable name
+            default: Default value if not found or invalid
+            
+        Returns:
+            Float value from environment or default
+        """
+        try:
+            value = os.getenv(key)
+            return float(value) if value is not None else default
+        except (ValueError, TypeError):
+            return default
 
     def _get_env_int(self, key: str, default: int) -> int:
         """Get integer value from environment with fallback.

@@ -6,6 +6,7 @@ from .heading_detector import HeadingDetectorInterface
 from .paragraph_detector import ParagraphDetectorInterface
 from .parser import PdfParserStrategy
 from .parser import TextElement
+from .list_detector import ListDetectorInterface
 
 __all__ = [
     "PdfParserStrategy", 
@@ -15,5 +16,6 @@ __all__ = [
     "FormatterInterface",
     "DocumentAnalyzerInterface",
     "DocumentAnalysis",
-    "DocumentType"
+    "DocumentType",
+    "ListDetectorInterface"
 ]

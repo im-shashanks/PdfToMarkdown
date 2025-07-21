@@ -18,6 +18,29 @@ class TextAlignment(Enum):
     JUSTIFY = "justify"
 
 
+class ListType(Enum):
+    """Types of lists supported."""
+    ORDERED = "ordered"
+    UNORDERED = "unordered"
+
+
+@dataclass(frozen=True)
+class ListMarker:
+    """
+    Value object representing a list marker.
+    
+    Immutable by design to ensure data integrity.
+    """
+    marker_type: ListType
+    symbol: str  # The actual marker symbol (e.g., "•", "1", "a")
+    prefix: str = ""  # Prefix like "(" in "(a)"
+    suffix: str = " "  # Suffix like ". " in "1. " or ") " in "(a) "
+    
+    def as_string(self) -> str:
+        """Get the full marker string representation."""
+        return f"{self.prefix}{self.symbol}{self.suffix}"
+
+
 @dataclass(frozen=True)
 class Line:
     """
@@ -56,6 +79,52 @@ class TextFlow:
         """Check if text flow is similar to another."""
         return (self.alignment == other.alignment and
                 abs(self.line_spacing - other.line_spacing) <= spacing_tolerance)
+
+
+@dataclass(frozen=True)
+class ListItem:
+    """
+    Value object representing a single list item.
+    
+    Immutable to maintain consistency across list processing.
+    """
+    content: str
+    level: int  # Nesting level (0-3)
+    marker: ListMarker
+    lines: List[Line] = field(default_factory=list)
+    
+    def __post_init__(self) -> None:
+        """Validate list item constraints."""
+        if self.level < 0:
+            raise ValueError("List item level must be non-negative")
+        if self.level > 3:
+            raise ValueError("List item level cannot exceed 3")
+        if not self.content.strip():
+            raise ValueError("List item content cannot be empty")
+        if not isinstance(self.marker, ListMarker):
+            raise TypeError("marker must be a ListMarker instance")
+        if not isinstance(self.lines, list):
+            raise TypeError("lines must be a list")
+        if any(not isinstance(line, Line) for line in self.lines):
+            raise TypeError("All items in lines must be Line instances")
+    
+    def get_indented_content(self) -> str:
+        """Get content with proper indentation based on level."""
+        indent = "  " * self.level  # 2 spaces per level
+        return f"{indent}{self.content}"
+    
+    def to_markdown(self) -> str:
+        """Convert list item to markdown format."""
+        indent = "  " * self.level
+        if self.marker.marker_type == ListType.UNORDERED:
+            return f"{indent}- {self.content}"
+        else:
+            # For ordered lists, preserve the original marker
+            return f"{indent}{self.marker.as_string()}{self.content}"
+    
+    def has_continuation(self) -> bool:
+        """Check if this item has continuation lines."""
+        return len(self.lines) > 1
 
 
 @dataclass
@@ -183,6 +252,89 @@ class Paragraph(Block):
                 return f"{indent_spaces}{content}\n"
             else:
                 return f"{content}\n"
+
+
+@dataclass
+class ListBlock(Block):
+    """
+    Represents a list structure in the document.
+    
+    Follows Single Responsibility Principle - only responsible for list data.
+    """
+    list_type: ListType
+    items: List[ListItem] = field(default_factory=list)
+    nested_lists: Dict[int, 'ListBlock'] = field(default_factory=dict)  # For mixed list types
+    
+    def add_item(self, item: ListItem) -> None:
+        """Add an item to the list with validation."""
+        if not isinstance(item, ListItem):
+            raise TypeError(f"Expected ListItem instance, got {type(item)}")
+        
+        # Validate that item type matches list type (for non-nested items)
+        if item.level == 0 and item.marker.marker_type != self.list_type:
+            raise ValueError(f"List type mismatch: expected {self.list_type.value}, got {item.marker.marker_type.value}")
+        
+        self.items.append(item)
+    
+    def add_nested_list(self, nested_list: 'ListBlock', parent_index: int) -> None:
+        """Add a nested list of different type."""
+        if not isinstance(nested_list, ListBlock):
+            raise TypeError(f"Expected ListBlock instance, got {type(nested_list)}")
+        self.nested_lists[parent_index] = nested_list
+    
+    def is_empty(self) -> bool:
+        """Check if list has no items."""
+        return len(self.items) == 0
+    
+    def get_max_level(self) -> int:
+        """Get the maximum nesting level in the list."""
+        if not self.items:
+            return -1
+        return max(item.level for item in self.items)
+    
+    def to_markdown(self) -> str:
+        """Convert list to markdown format."""
+        if self.is_empty():
+            return ""
+        
+        lines = []
+        for i, item in enumerate(self.items):
+            # Check if this item has a nested list of different type
+            if i in self.nested_lists:
+                lines.append(self._format_item_markdown(item))
+                # Add nested list with proper indentation
+                nested = self.nested_lists[i]
+                nested_markdown = nested.to_markdown()
+                if nested_markdown:
+                    # Indent nested list by 3 spaces under ordered items
+                    indent = "   "
+                    nested_lines = nested_markdown.split('\n')
+                    indented_lines = [indent + line for line in nested_lines]
+                    lines.extend(indented_lines)
+            else:
+                lines.append(self._format_item_markdown(item))
+        
+        return '\n'.join(lines)
+    
+    def _format_item_markdown(self, item: ListItem) -> str:
+        """Format a single item to markdown."""
+        indent = "  " * item.level
+        if self.list_type == ListType.UNORDERED:
+            return f"{indent}- {item.content}"
+        else:
+            # For ordered lists, use sequential numbering
+            return f"{indent}{self._get_item_number(item)}. {item.content}"
+    
+    def _get_item_number(self, target_item: ListItem) -> str:
+        """Get the appropriate number for an ordered list item."""
+        # Count items at the same level that come before this item
+        count = 1
+        for item in self.items:
+            if item == target_item:
+                break
+            if item.level == target_item.level:
+                count += 1
+        return str(count)
 
 
 @dataclass

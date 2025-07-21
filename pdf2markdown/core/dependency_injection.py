@@ -12,6 +12,7 @@ from pdf2markdown.domain.interfaces import (
     DocumentAnalyzerInterface,
     FormatterInterface,
     HeadingDetectorInterface,
+    ListDetectorInterface,
     ParagraphDetectorInterface,
     PdfParserStrategy
 )
@@ -117,6 +118,7 @@ def create_default_container(config: Optional[ApplicationConfig] = None) -> Depe
         Configured dependency injection container
     """
     from pdf2markdown.domain.services import HeadingDetector
+    from pdf2markdown.domain.services import ListDetector
     from pdf2markdown.domain.services import ParagraphDetector
     from pdf2markdown.domain.services.document_analyzer import DocumentAnalyzer
     from pdf2markdown.infrastructure.formatters import MarkdownFormatter
@@ -146,6 +148,17 @@ def create_default_container(config: Optional[ApplicationConfig] = None) -> Depe
     container.register(
         ParagraphDetectorInterface,
         lambda: ParagraphDetector(),
+        singleton=False
+    )
+    
+    # Register list detector
+    container.register(
+        ListDetectorInterface,
+        lambda: ListDetector(
+            indentation_threshold=app_config.list_detection.indentation_threshold,
+            continuation_indent_threshold=app_config.list_detection.continuation_indent_threshold,
+            max_nesting_level=app_config.list_detection.max_nesting_level
+        ),
         singleton=False
     )
     

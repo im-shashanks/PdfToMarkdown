@@ -24,7 +24,8 @@ from pdf2markdown.core.exceptions import PdfToMarkdownError
 from pdf2markdown.core.exceptions import ProcessingError
 from pdf2markdown.core.exceptions import ValidationError
 from pdf2markdown.core.file_validator import create_file_validator
-from pdf2markdown.domain.interfaces import DocumentAnalyzerInterface, FormatterInterface, HeadingDetectorInterface, ParagraphDetectorInterface, PdfParserStrategy
+from pdf2markdown.domain.interfaces import DocumentAnalyzerInterface, FormatterInterface, HeadingDetectorInterface, ParagraphDetectorInterface, PdfParserStrategy, ListDetectorInterface
+from pdf2markdown.domain.models.document import Document
 
 
 class PdfToMarkdownCli:
@@ -58,6 +59,7 @@ class PdfToMarkdownCli:
         self._document_analyzer = self._container.resolve(DocumentAnalyzerInterface)
         self._heading_detector = self._container.resolve(HeadingDetectorInterface)
         self._paragraph_detector = self._container.resolve(ParagraphDetectorInterface)
+        self._list_detector = self._container.resolve(ListDetectorInterface)
         self._markdown_formatter = self._container.resolve(FormatterInterface)
 
     def run(self, args: Optional[list] = None) -> int:
@@ -205,7 +207,53 @@ class PdfToMarkdownCli:
                                 if hasattr(block, 'lines'))
             self._logger.info(f"Detected {paragraph_count} paragraphs in document")
 
-            # Step 4: Apply adaptive heading detection
+            # Step 4: Apply list detection
+            self._logger.debug("Detecting list structures...")
+            
+            # Use the enhanced parser's line extraction for precise list detection
+            from pdf2markdown.domain.models.document import Line
+            
+            # Extract lines with positioning information
+            lines = []
+            try:
+                for text, x_pos, y_pos, height, page_num in self._pdf_parser.extract_line_elements(cli_args.input_file):
+                    lines.append(Line(text, y_pos, x_pos, height))
+            except Exception as e:
+                self._logger.warning(f"Could not extract line positioning for list detection: {e}")
+                # Fallback: continue without list detection
+                lines = []
+            
+            if lines:
+                # Detect list items from positioned lines
+                list_items = self._list_detector.detect_list_items_from_lines(lines)
+                if list_items:
+                    # Group list items into blocks
+                    list_blocks = self._list_detector.group_list_items_into_blocks(list_items)
+                    
+                    # Create a new document with list blocks integrated
+                    document_with_lists = Document(
+                        title=document_with_paragraphs.title,
+                        metadata=document_with_paragraphs.metadata
+                    )
+                    
+                    # Merge list blocks with existing blocks based on positioning
+                    self._integrate_list_blocks_into_document(
+                        document_with_lists, 
+                        document_with_paragraphs, 
+                        list_blocks
+                    )
+                    
+                    list_count = len(list_blocks)
+                    item_count = sum(len(block.items) for block in list_blocks)
+                    self._logger.info(f"Detected {list_count} lists with {item_count} total items")
+                    
+                    document_with_paragraphs = document_with_lists
+                else:
+                    self._logger.debug("No list structures detected")
+            else:
+                self._logger.debug("Skipping list detection due to line extraction issues")
+
+            # Step 5: Apply adaptive heading detection
             self._logger.debug("Detecting headings with adaptive processing...")
             # Configure heading detector based on recommendations
             heading_config = recommendations.get('heading_detection', {})
@@ -265,6 +313,56 @@ class PdfToMarkdownCli:
                 stage="convert",
                 file_path=str(cli_args.input_file)
             ) from e
+
+    def _integrate_list_blocks_into_document(
+        self,
+        target_document,
+        source_document,
+        list_blocks
+    ) -> None:
+        """Integrate detected list blocks into the document structure.
+        
+        This method merges list blocks with existing paragraph/text blocks,
+        replacing text that was identified as list content with proper ListBlock objects.
+        
+        Args:
+            target_document: Document to populate with integrated blocks
+            source_document: Original document with paragraph blocks
+            list_blocks: Detected list blocks to integrate
+        """
+        # For now, implement a simple strategy:
+        # 1. Add all non-list blocks from source
+        # 2. Add all list blocks
+        # Future enhancement: merge based on y-position to maintain proper order
+        
+        # Extract list item text for comparison
+        list_item_texts = set()
+        for list_block in list_blocks:
+            for item in list_block.items:
+                # Remove leading markers for comparison
+                clean_text = item.content.strip()
+                list_item_texts.add(clean_text)
+        
+        # Add blocks from source, skipping those that are now represented as lists
+        for block in source_document.blocks:
+            block_text = ""
+            if hasattr(block, 'content'):
+                block_text = block.content.strip()
+            elif hasattr(block, 'lines'):
+                block_text = " ".join(line.text.strip() for line in block.lines)
+            
+            # Skip blocks that are now represented as list items
+            is_list_content = any(
+                clean_text in block_text or block_text in clean_text
+                for clean_text in list_item_texts
+            )
+            
+            if not is_list_content:
+                target_document.add_block(block)
+        
+        # Add all detected list blocks
+        for list_block in list_blocks:
+            target_document.add_block(list_block)
 
     def _setup_logging(self) -> logging.Logger:
         """Set up application logging.

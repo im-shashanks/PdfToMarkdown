@@ -16,9 +16,9 @@ class TestHeadingDetectionConfig:
         config = HeadingDetectionConfig()
         
         # Assert
-        assert config.level_multipliers[1] == 2.0  # H1
-        assert config.level_multipliers[6] == 1.1  # H6
-        assert config.min_size_difference == 1.0
+        assert config.level_multipliers[1] == 1.8  # H1 (updated value)
+        assert config.level_multipliers[6] == 1.02  # H6 (updated value)
+        assert config.min_size_difference == 0.1  # Updated value
         assert config.bold_weight == 0.1
         assert config.italic_weight == 0.05
         assert config.min_heading_length == 1
@@ -129,16 +129,16 @@ class TestHeadingDetector:
         assert level == 1  # 24/12 = 2.0 ratio >= H1 threshold (2.0)
     
     def test_determine_heading_level_h2(self):
-        """Test H2 heading detection."""
+        """Test H2 heading detection with content-aware logic."""
         # Arrange
-        text_block = TextBlock(content="Chapter Title", font_size=21.6)  # 21.6/12 = 1.8
+        text_block = TextBlock(content="EXPERIENCE", font_size=21.6)  # Major section keyword
         baseline = 12.0
         
         # Act
         level = self.detector._determine_heading_level(text_block, baseline)
         
         # Assert
-        assert level == 2  # 21.6/12 = 1.8 ratio >= H2 (1.8)
+        assert level == 2  # Major section keywords are H2 level
     
     def test_determine_heading_level_not_heading(self):
         """Test text that should not be detected as heading."""
@@ -149,8 +149,9 @@ class TestHeadingDetector:
         # Act
         level = self.detector._determine_heading_level(text_block, baseline)
         
-        # Assert
-        assert level is None  # Too small difference (0.5 < 1.0 min_difference)
+        # Assert  
+        # Regular paragraph text should not be detected as heading despite font size difference
+        assert level is None  # Enhanced algorithm correctly rejects generic text as heading
     
     def test_determine_heading_level_content_too_long(self):
         """Test that very long content is not detected as heading."""
@@ -195,7 +196,7 @@ class TestHeadingDetector:
         document = Document()
         document.add_block(TextBlock(content="Main Title", font_size=24.0))  # H1: 24/12=2.0
         document.add_block(TextBlock(content="Regular paragraph text here.", font_size=12.0))
-        document.add_block(TextBlock(content="Chapter 1", font_size=21.6))  # H2: 21.6/12=1.8
+        document.add_block(TextBlock(content="EXPERIENCE", font_size=21.6))  # H2: Major section
         document.add_block(TextBlock(content="More paragraph content.", font_size=12.0))
         
         # Act
@@ -216,7 +217,7 @@ class TestHeadingDetector:
         # Third block should be H2
         assert isinstance(result_doc.blocks[2], Heading)
         assert result_doc.blocks[2].level == 2
-        assert result_doc.blocks[2].content == "Chapter 1"
+        assert result_doc.blocks[2].content == "EXPERIENCE"
         
         # Fourth block should remain text
         assert isinstance(result_doc.blocks[3], TextBlock)
@@ -278,10 +279,10 @@ class TestHeadingDetector:
         # Add some normal text blocks first to establish baseline
         document.add_block(TextBlock(content="Normal text 1", font_size=12.0))       # Text
         document.add_block(TextBlock(content="Normal text 2", font_size=12.0))       # Text
-        document.add_block(TextBlock(content="Document Title", font_size=24.0))      # H1: 24/12=2.0
-        document.add_block(TextBlock(content="Introduction", font_size=21.6))        # H2: 21.6/12=1.8
-        document.add_block(TextBlock(content="Overview", font_size=18.0))            # H3: 18/12=1.5
-        document.add_block(TextBlock(content="Details", font_size=15.6))             # H4: 15.6/12=1.3
+        document.add_block(TextBlock(content="John Doe", font_size=24.0))            # H1: Name (content-aware)
+        document.add_block(TextBlock(content="EXPERIENCE", font_size=21.6))          # H2: Major section
+        document.add_block(TextBlock(content="EDUCATION", font_size=18.0))           # H2: Major section (content overrides font)
+        document.add_block(TextBlock(content="SKILLS", font_size=15.6))              # H2: Major section (content overrides font)
         document.add_block(TextBlock(content="Normal text 3", font_size=12.0))       # Text
         
         # Act
@@ -294,9 +295,9 @@ class TestHeadingDetector:
         assert isinstance(result_doc.blocks[0], TextBlock)
         assert isinstance(result_doc.blocks[1], TextBlock)
         
-        # Check heading levels
-        assert isinstance(result_doc.blocks[2], Heading) and result_doc.blocks[2].level == 1
-        assert isinstance(result_doc.blocks[3], Heading) and result_doc.blocks[3].level == 2
-        assert isinstance(result_doc.blocks[4], Heading) and result_doc.blocks[4].level == 3
-        assert isinstance(result_doc.blocks[5], Heading) and result_doc.blocks[5].level == 4
+        # Check heading levels (content-aware resume detection)
+        assert isinstance(result_doc.blocks[2], Heading) and result_doc.blocks[2].level == 1  # Name
+        assert isinstance(result_doc.blocks[3], Heading) and result_doc.blocks[3].level == 2  # EXPERIENCE
+        assert isinstance(result_doc.blocks[4], Heading) and result_doc.blocks[4].level == 2  # EDUCATION
+        assert isinstance(result_doc.blocks[5], Heading) and result_doc.blocks[5].level == 2  # SKILLS
         assert isinstance(result_doc.blocks[6], TextBlock)

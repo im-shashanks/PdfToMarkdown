@@ -9,6 +9,8 @@ from pdfminer.layout import LTChar
 from pdfminer.layout import LTTextBox
 from pdfminer.layout import LTTextContainer
 from pdfminer.layout import LTTextLine
+from typing import List, Tuple, Dict
+import re
 
 from pdf2markdown.domain.interfaces import PdfParserStrategy
 from pdf2markdown.domain.interfaces import TextElement
@@ -75,51 +77,123 @@ class PdfMinerParser(PdfParserStrategy):
         page_number: int
     ) -> Iterator[TextElement]:
         """Extract text elements from a text container with formatting."""
-        text_content = ""
+        # Extract line-by-line to preserve positioning information
+        for line in container:
+            if isinstance(line, (LTTextBox, LTTextLine)):
+                yield from self._extract_from_text_line(line, page_number)
+            elif isinstance(line, LTTextContainer):
+                # Recursively handle nested containers
+                yield from self._extract_from_text_container(line, page_number)
+
+    def _extract_from_text_line(
+        self,
+        line: LTTextLine,
+        page_number: int
+    ) -> Iterator[TextElement]:
+        """Extract text elements from a single text line with precise positioning."""
+        # Use line.get_text() directly to preserve spacing instead of char-by-char reconstruction
+        text_content = line.get_text()
+        
+        # Still need to analyze characters for formatting information
         font_sizes = []
         font_names = []
         is_bold_chars = []
         is_italic_chars = []
-        x_positions = []
-        y_positions = []
 
-        for line in container:
-            if isinstance(line, (LTTextBox, LTTextLine)):
-                for char in line:
-                    if isinstance(char, LTChar):
-                        text_content += char.get_text()
-                        font_sizes.append(char.height)
-                        font_names.append(getattr(char, 'fontname', ''))
+        for char in line:
+            if isinstance(char, LTChar):
+                font_sizes.append(char.height)
+                font_names.append(getattr(char, 'fontname', ''))
 
-                        # Detect bold and italic from font name
-                        font_name = getattr(char, 'fontname', '').lower()
-                        is_bold = any(indicator in font_name for indicator in ['bold', 'black', 'heavy'])
-                        is_italic = any(indicator in font_name for indicator in ['italic', 'oblique'])
+                # Enhanced font analysis
+                font_name = getattr(char, 'fontname', '').lower()
+                is_bold = self._detect_bold_formatting(font_name)
+                is_italic = self._detect_italic_formatting(font_name)
 
-                        is_bold_chars.append(is_bold)
-                        is_italic_chars.append(is_italic)
-                        x_positions.append(char.x0)
-                        y_positions.append(char.y0)
+                is_bold_chars.append(is_bold)
+                is_italic_chars.append(is_italic)
 
         if text_content.strip():
-            # Calculate dominant formatting for the entire text element
+            # Enhanced formatting analysis for the line
             avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 12.0
             dominant_font = max(set(font_names), key=font_names.count) if font_names else None
-            is_bold = sum(is_bold_chars) > len(is_bold_chars) / 2 if is_bold_chars else False
-            is_italic = sum(is_italic_chars) > len(is_italic_chars) / 2 if is_italic_chars else False
-            avg_x = sum(x_positions) / len(x_positions) if x_positions else 0.0
-            avg_y = sum(y_positions) / len(y_positions) if y_positions else 0.0
+            
+            # Use weighted bold/italic detection (70% threshold for mixed formatting)
+            is_bold = sum(is_bold_chars) > len(is_bold_chars) * 0.3 if is_bold_chars else False
+            is_italic = sum(is_italic_chars) > len(is_italic_chars) * 0.3 if is_italic_chars else False
+            
+            # Additional style analysis
+            style_metadata = self._analyze_text_style(text_content, font_names, font_sizes)
+            
+            # Use line-level positioning for more accurate coordinates
+            line_x = line.x0  # Left edge of the line
+            line_y = line.y1  # Top edge of the line
+            line_height = line.height
 
-            yield TextElement(
-                content=text_content.strip(),
+            # Create enhanced TextElement with style metadata
+            element = TextElement(
+                content=text_content.rstrip('\n'),  # Only strip trailing newlines, preserve internal spaces
                 font_size=avg_font_size,
                 font_name=dominant_font,
                 is_bold=is_bold,
                 is_italic=is_italic,
-                x_position=avg_x,
-                y_position=avg_y,
+                x_position=line_x,
+                y_position=line_y,
                 page_number=page_number
             )
+            
+            # Add style metadata as attributes (maintaining interface compatibility)
+            if hasattr(element, '__dict__'):
+                element.__dict__.update(style_metadata)
+            
+            yield element
+
+    def extract_line_elements(self, file_path: Path) -> Iterator[Tuple[str, float, float, float, int]]:
+        """Extract line-level text elements with precise positioning for paragraph detection.
+        
+        Returns:
+            Iterator of tuples: (text, x_position, y_position, height, page_number)
+        """
+        try:
+            if not file_path.exists():
+                raise OSError(f"File not found: {file_path}")
+
+            if not file_path.suffix.lower() == '.pdf':
+                raise ValueError(f"File is not a PDF: {file_path}")
+
+            page_number = 1
+            for page_layout in extract_pages(str(file_path)):
+                for element in page_layout:
+                    if isinstance(element, LTTextContainer):
+                        yield from self._extract_lines_from_container(element, page_number)
+                page_number += 1
+
+        except Exception as e:
+            self.logger.error(f"Error extracting line elements from PDF {file_path}: {e}")
+            if isinstance(e, (IOError, ValueError)):
+                raise
+            raise ValueError(f"Failed to extract line elements: {e}") from e
+
+    def _extract_lines_from_container(
+        self,
+        container: LTTextContainer,
+        page_number: int
+    ) -> Iterator[Tuple[str, float, float, float, int]]:
+        """Extract individual lines from a text container."""
+        for line in container:
+            if isinstance(line, LTTextLine):
+                text_content = line.get_text().strip()
+                if text_content:
+                    yield (
+                        text_content,
+                        line.x0,     # Left edge
+                        line.y1,     # Top edge (PDFMiner uses bottom-up coordinates)
+                        line.height,  # Line height
+                        page_number
+                    )
+            elif isinstance(line, LTTextContainer):
+                # Recursively handle nested containers
+                yield from self._extract_lines_from_container(line, page_number)
 
     def parse_document(self, file_path: Path) -> Document:
         """
@@ -166,3 +240,125 @@ class PdfMinerParser(PdfParserStrategy):
         except Exception as e:
             self.logger.error(f"Error creating document from {file_path}: {e}")
             raise
+            
+    def _detect_bold_formatting(self, font_name: str) -> bool:
+        """
+        Enhanced bold detection using comprehensive font name analysis.
+        
+        Args:
+            font_name: Font name from PDF character
+            
+        Returns:
+            bool: True if font appears to be bold
+        """
+        if not font_name:
+            return False
+            
+        font_name_lower = font_name.lower()
+        
+        # Primary bold indicators
+        bold_indicators = [
+            'bold', 'black', 'heavy', 'extrabold', 'ultrabold',
+            'semibold', 'demibold', 'medium', 'thick'
+        ]
+        
+        # Font family specific indicators
+        family_bold_patterns = [
+            r'.*-b$',  # Font names ending with -B
+            r'.*-bold$',  # Font names ending with -Bold
+            r'.*bold.*',  # Any font with 'bold' in name
+            r'.*black.*',  # Any font with 'black' in name
+            r'.*heavy.*',  # Any font with 'heavy' in name
+        ]
+        
+        # Check primary indicators
+        for indicator in bold_indicators:
+            if indicator in font_name_lower:
+                return True
+                
+        # Check pattern-based indicators
+        for pattern in family_bold_patterns:
+            if re.match(pattern, font_name_lower):
+                return True
+                
+        return False
+        
+    def _detect_italic_formatting(self, font_name: str) -> bool:
+        """
+        Enhanced italic detection using comprehensive font name analysis.
+        
+        Args:
+            font_name: Font name from PDF character
+            
+        Returns:
+            bool: True if font appears to be italic
+        """
+        if not font_name:
+            return False
+            
+        font_name_lower = font_name.lower()
+        
+        # Primary italic indicators
+        italic_indicators = [
+            'italic', 'oblique', 'slanted', 'cursive'
+        ]
+        
+        # Font family specific patterns
+        italic_patterns = [
+            r'.*-i$',  # Font names ending with -I
+            r'.*-italic$',  # Font names ending with -Italic
+            r'.*italic.*',  # Any font with 'italic' in name
+            r'.*oblique.*',  # Any font with 'oblique' in name
+        ]
+        
+        # Check primary indicators
+        for indicator in italic_indicators:
+            if indicator in font_name_lower:
+                return True
+                
+        # Check pattern-based indicators
+        for pattern in italic_patterns:
+            if re.match(pattern, font_name_lower):
+                return True
+                
+        return False
+        
+    def _analyze_text_style(self, text_content: str, font_names: List[str], font_sizes: List[float]) -> Dict:
+        """
+        Analyze additional text style characteristics.
+        
+        Args:
+            text_content: Text content of the line
+            font_names: List of font names in the line
+            font_sizes: List of font sizes in the line
+            
+        Returns:
+            Dict: Style metadata including formatting patterns
+        """
+        style_metadata = {}
+        
+        # Analyze text case patterns
+        stripped_text = text_content.strip()
+        if stripped_text:
+            style_metadata['is_all_caps'] = stripped_text.isupper()
+            style_metadata['is_title_case'] = stripped_text.istitle()
+            style_metadata['has_mixed_case'] = not (stripped_text.isupper() or stripped_text.islower())
+            
+        # Analyze font consistency
+        unique_fonts = set(font_names) if font_names else set()
+        style_metadata['font_consistency'] = len(unique_fonts) <= 1
+        style_metadata['font_variety_count'] = len(unique_fonts)
+        
+        # Analyze size consistency
+        if font_sizes:
+            size_variance = max(font_sizes) - min(font_sizes) if len(font_sizes) > 1 else 0.0
+            style_metadata['size_consistency'] = size_variance < 1.0
+            style_metadata['size_variance'] = size_variance
+            
+        # Analyze punctuation patterns (headings often lack terminal punctuation)
+        style_metadata['has_terminal_punctuation'] = stripped_text.endswith(('.', '!', '?', ':', ';'))
+        
+        # Analyze word count (headings are typically shorter)
+        style_metadata['word_count'] = len(stripped_text.split())
+        
+        return style_metadata

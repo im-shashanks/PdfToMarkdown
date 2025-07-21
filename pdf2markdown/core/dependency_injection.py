@@ -9,8 +9,10 @@ from typing import Any, Callable, Dict, Optional, Type, TypeVar
 
 from pdf2markdown.core.config import ApplicationConfig
 from pdf2markdown.domain.interfaces import (
+    DocumentAnalyzerInterface,
     FormatterInterface,
     HeadingDetectorInterface,
+    ParagraphDetectorInterface,
     PdfParserStrategy
 )
 
@@ -115,6 +117,8 @@ def create_default_container(config: Optional[ApplicationConfig] = None) -> Depe
         Configured dependency injection container
     """
     from pdf2markdown.domain.services import HeadingDetector
+    from pdf2markdown.domain.services import ParagraphDetector
+    from pdf2markdown.domain.services.document_analyzer import DocumentAnalyzer
     from pdf2markdown.infrastructure.formatters import MarkdownFormatter
     from pdf2markdown.infrastructure.parsers import PdfMinerParser
     
@@ -138,11 +142,25 @@ def create_default_container(config: Optional[ApplicationConfig] = None) -> Depe
         singleton=False
     )
     
+    # Register paragraph detector
+    container.register(
+        ParagraphDetectorInterface,
+        lambda: ParagraphDetector(),
+        singleton=False
+    )
+    
     # Register formatter
     container.register(
         FormatterInterface,
         lambda: MarkdownFormatter(),
         singleton=False
+    )
+    
+    # Register document analyzer
+    container.register(
+        DocumentAnalyzerInterface,
+        lambda: DocumentAnalyzer(),
+        singleton=True  # Singleton since it's stateless
     )
     
     return container

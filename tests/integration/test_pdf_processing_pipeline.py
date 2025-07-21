@@ -27,12 +27,12 @@ class TestPdfProcessingPipeline:
         """Test the complete pipeline with a simple document."""
         # Arrange
         mock_elements = [
-            TextElement(content="Document Title", font_size=24.0, page_number=1),  # H1: 24/12=2.0
+            TextElement(content="John Doe", font_size=24.0, page_number=1),           # H1: Name
             TextElement(content="This is the introduction paragraph.", font_size=12.0, page_number=1),
-            TextElement(content="Chapter 1", font_size=21.6, page_number=1),      # H2: 21.6/12=1.8
-            TextElement(content="Content of chapter 1.", font_size=12.0, page_number=1),
-            TextElement(content="Conclusion", font_size=21.6, page_number=1),     # H2: 21.6/12=1.8
-            TextElement(content="Final thoughts.", font_size=12.0, page_number=1),
+            TextElement(content="EXPERIENCE", font_size=21.6, page_number=1),         # H2: Major section
+            TextElement(content="Content of experience section.", font_size=12.0, page_number=1),
+            TextElement(content="EDUCATION", font_size=21.6, page_number=1),          # H2: Major section
+            TextElement(content="Educational background details.", font_size=12.0, page_number=1),
         ]
         mock_extract_text_elements.return_value = iter(mock_elements)
         
@@ -58,18 +58,18 @@ class TestPdfProcessingPipeline:
                 markdown_content = f.read()
             
             # Check that headings were detected and formatted correctly
-            assert "# Document Title" in markdown_content
-            assert "## Chapter 1" in markdown_content
-            assert "## Conclusion" in markdown_content
+            assert "# John Doe" in markdown_content
+            assert "## EXPERIENCE" in markdown_content
+            assert "## EDUCATION" in markdown_content
             assert "This is the introduction paragraph." in markdown_content
-            assert "Content of chapter 1." in markdown_content
-            assert "Final thoughts." in markdown_content
+            assert "Content of experience section." in markdown_content
+            assert "Educational background details." in markdown_content
             
             # Verify structure
             lines = markdown_content.strip().split('\n')
-            assert lines[0] == "# Document Title"
-            assert "## Chapter 1" in lines
-            assert "## Conclusion" in lines
+            assert lines[0] == "# John Doe"
+            assert "## EXPERIENCE" in lines
+            assert "## EDUCATION" in lines
             
         finally:
             input_path.unlink()
@@ -80,11 +80,11 @@ class TestPdfProcessingPipeline:
         """Test pipeline with multiple heading levels."""
         # Arrange
         mock_elements = [
-            TextElement(content="Main Title", font_size=24.0, page_number=1),      # H1
+            TextElement(content="Jane Smith", font_size=24.0, page_number=1),      # H1: Name
             TextElement(content="Normal text", font_size=12.0, page_number=1),     # Text
-            TextElement(content="Chapter", font_size=21.6, page_number=1),         # H2
-            TextElement(content="Section", font_size=18.0, page_number=1),         # H3
-            TextElement(content="Subsection", font_size=15.6, page_number=1),      # H4
+            TextElement(content="EXPERIENCE", font_size=21.6, page_number=1),      # H2: Major section
+            TextElement(content="EDUCATION", font_size=18.0, page_number=1),       # H2: Major section
+            TextElement(content="SKILLS", font_size=15.6, page_number=1),          # H2: Major section
             TextElement(content="Content here", font_size=12.0, page_number=1),    # Text
         ]
         mock_extract_text_elements.return_value = iter(mock_elements)
@@ -105,11 +105,11 @@ class TestPdfProcessingPipeline:
             with open(output_path, 'r', encoding='utf-8') as f:
                 markdown_content = f.read()
             
-            # Verify heading hierarchy
-            assert "# Main Title" in markdown_content
-            assert "## Chapter" in markdown_content
-            assert "### Section" in markdown_content
-            assert "#### Subsection" in markdown_content
+            # Verify heading hierarchy (resume-aware detection)
+            assert "# Jane Smith" in markdown_content
+            assert "## EXPERIENCE" in markdown_content
+            assert "## EDUCATION" in markdown_content
+            assert "## SKILLS" in markdown_content
             assert "Normal text" in markdown_content
             assert "Content here" in markdown_content
             

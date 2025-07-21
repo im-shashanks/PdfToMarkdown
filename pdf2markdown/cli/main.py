@@ -24,7 +24,7 @@ from pdf2markdown.core.exceptions import PdfToMarkdownError
 from pdf2markdown.core.exceptions import ProcessingError
 from pdf2markdown.core.exceptions import ValidationError
 from pdf2markdown.core.file_validator import create_file_validator
-from pdf2markdown.domain.interfaces import FormatterInterface, HeadingDetectorInterface, PdfParserStrategy
+from pdf2markdown.domain.interfaces import DocumentAnalyzerInterface, FormatterInterface, HeadingDetectorInterface, ParagraphDetectorInterface, PdfParserStrategy
 
 
 class PdfToMarkdownCli:
@@ -55,7 +55,9 @@ class PdfToMarkdownCli:
 
         # Resolve dependencies through dependency injection
         self._pdf_parser = self._container.resolve(PdfParserStrategy)
+        self._document_analyzer = self._container.resolve(DocumentAnalyzerInterface)
         self._heading_detector = self._container.resolve(HeadingDetectorInterface)
+        self._paragraph_detector = self._container.resolve(ParagraphDetectorInterface)
         self._markdown_formatter = self._container.resolve(FormatterInterface)
 
     def run(self, args: Optional[list] = None) -> int:
@@ -179,20 +181,64 @@ class PdfToMarkdownCli:
             document = self._pdf_parser.parse_document(cli_args.input_file)
             self._logger.info(f"Extracted {len(document.blocks)} text blocks from PDF")
 
-            # Step 2: Detect headings in the document
-            self._logger.debug("Detecting headings...")
-            document_with_headings = self._heading_detector.detect_headings_in_document(document)
+            # Step 2: Analyze document type and characteristics
+            self._logger.debug("Analyzing document type...")
+            document_analysis = self._document_analyzer.analyze_document_type(document)
+            self._logger.info(f"Detected document type: {document_analysis.document_type.value} "
+                            f"(confidence: {document_analysis.confidence:.2f})")
+            
+            # Get processing recommendations based on document type
+            recommendations = self._document_analyzer.get_processing_recommendations(document_analysis)
+            self._logger.debug(f"Using processing strategy: {document_analysis.suggested_processing_strategy}")
+
+            # Step 3: Apply adaptive paragraph detection
+            self._logger.debug("Detecting paragraphs with adaptive processing...")
+            # Configure paragraph detector based on recommendations
+            paragraph_config = recommendations.get('paragraph_detection', {})
+            self._paragraph_detector.line_spacing_threshold = paragraph_config.get('line_spacing_threshold', 1.8)
+            self._paragraph_detector.content_aware_merging = not paragraph_config.get('merge_aggressive', False)
+            
+            document_with_paragraphs = self._paragraph_detector.detect_paragraphs_in_document(document)
+            
+            # Count paragraphs for logging
+            paragraph_count = sum(1 for block in document_with_paragraphs.blocks
+                                if hasattr(block, 'lines'))
+            self._logger.info(f"Detected {paragraph_count} paragraphs in document")
+
+            # Step 4: Apply adaptive heading detection
+            self._logger.debug("Detecting headings with adaptive processing...")
+            # Configure heading detector based on recommendations
+            heading_config = recommendations.get('heading_detection', {})
+            if hasattr(self._heading_detector, 'config'):
+                self._heading_detector.config.min_size_difference = heading_config.get('font_size_threshold', 0.1)
+                # Scale pattern weights based on document type
+                pattern_weight = heading_config.get('pattern_weight', 1.0)
+                caps_weight = heading_config.get('caps_weight', 1.0)
+                
+            document_with_headings = self._heading_detector.detect_headings_in_document(document_with_paragraphs)
 
             # Count headings for logging
             heading_count = sum(1 for block in document_with_headings.blocks
                               if hasattr(block, 'level'))
             self._logger.info(f"Detected {heading_count} headings in document")
+            
+            # Log document analysis results for debugging
+            if self._config.debug:
+                self._logger.debug(f"Document characteristics: {document_analysis.characteristics}")
+                self._logger.debug(f"Processing recommendations: {recommendations}")
 
-            # Step 3: Format to Markdown
+            # Step 5: Format to Markdown
             self._logger.debug("Formatting to Markdown...")
             self._markdown_formatter.format_to_file(document_with_headings, str(cli_args.output_file))
 
             self._logger.info(f"Successfully created Markdown output: {cli_args.output_file}")
+            
+            # Step 6: Quality validation (if enabled)
+            if document_analysis.confidence < 0.5:
+                self._output_handler.warning(
+                    f"Low confidence in document type detection ({document_analysis.confidence:.2f}). "
+                    "Results may not be optimal. Consider manual review."
+                )
 
         except OSError as e:
             raise FileSystemError(
@@ -206,8 +252,16 @@ class PdfToMarkdownCli:
                 file_path=str(cli_args.input_file)
             ) from e
         except Exception as e:
+            # Enhanced error reporting with document analysis context
+            error_context = ""
+            try:
+                if 'document_analysis' in locals():
+                    error_context = f" (Document type: {document_analysis.document_type.value})"
+            except:
+                pass  # Ignore errors in error reporting
+                
             raise ProcessingError(
-                f"PDF processing failed: {e}",
+                f"PDF processing failed: {e}{error_context}",
                 stage="convert",
                 file_path=str(cli_args.input_file)
             ) from e

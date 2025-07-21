@@ -17,7 +17,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pylint
+        pip install pylint pytest "pdfminer.six>=20231228" "rich>=13.0.0" "typing-extensions>=4.0.0; python_version<'3.10'"
     - name: Analysing the code with pylint
       run: |
         pylint $(git ls-files '*.py')

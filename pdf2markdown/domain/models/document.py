@@ -24,6 +24,70 @@ class ListType(Enum):
     UNORDERED = "unordered"
 
 
+class CodeLanguage(Enum):
+    """Programming languages supported for code block detection."""
+    PYTHON = "python"
+    JAVASCRIPT = "javascript"
+    JAVA = "java"
+    CPP = "cpp"
+    SQL = "sql"
+    HTML = "html"
+    JSON = "json"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_string(cls, language_str: str) -> "CodeLanguage":
+        """Create CodeLanguage from string, defaulting to UNKNOWN for unrecognized languages."""
+        try:
+            return cls(language_str.lower())
+        except ValueError:
+            return cls.UNKNOWN
+
+
+@dataclass(frozen=True)
+class CodeStyle:
+    """
+    Value object for code formatting metadata.
+    
+    Immutable by design to ensure data integrity.
+    """
+    indentation_level: int = 0
+    uses_tabs: bool = False
+    preserve_whitespace: bool = True
+    font_family: str = ""
+
+    def __post_init__(self) -> None:
+        """Validate code style constraints."""
+        if self.indentation_level < 0:
+            raise ValueError("Indentation level must be non-negative")
+
+
+@dataclass(frozen=True)
+class InlineCode:
+    """
+    Value object representing inline code snippets within text.
+    
+    Immutable by design to ensure data integrity.
+    """
+    content: str
+    font_family: str = ""
+    start_position: float = 0.0
+    end_position: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate inline code constraints."""
+        if not self.content.strip():
+            raise ValueError("Inline code content cannot be empty")
+        if self.start_position > self.end_position:
+            raise ValueError("Start position cannot be greater than end position")
+
+    def to_markdown(self) -> str:
+        """Convert inline code to markdown format with backticks."""
+        # Escape existing backticks in content
+        escaped_content = self.content.replace("`", "\\`")
+        return f"`{escaped_content}`"
+
+
 @dataclass(frozen=True)
 class ListMarker:
     """
@@ -35,7 +99,7 @@ class ListMarker:
     symbol: str  # The actual marker symbol (e.g., "•", "1", "a")
     prefix: str = ""  # Prefix like "(" in "(a)"
     suffix: str = " "  # Suffix like ". " in "1. " or ") " in "(a) "
-    
+
     def as_string(self) -> str:
         """Get the full marker string representation."""
         return f"{self.prefix}{self.symbol}{self.suffix}"
@@ -92,7 +156,7 @@ class ListItem:
     level: int  # Nesting level (0-3)
     marker: ListMarker
     lines: List[Line] = field(default_factory=list)
-    
+
     def __post_init__(self) -> None:
         """Validate list item constraints."""
         if self.level < 0:
@@ -107,12 +171,12 @@ class ListItem:
             raise TypeError("lines must be a list")
         if any(not isinstance(line, Line) for line in self.lines):
             raise TypeError("All items in lines must be Line instances")
-    
+
     def get_indented_content(self) -> str:
         """Get content with proper indentation based on level."""
         indent = "  " * self.level  # 2 spaces per level
         return f"{indent}{self.content}"
-    
+
     def to_markdown(self) -> str:
         """Convert list item to markdown format."""
         indent = "  " * self.level
@@ -121,7 +185,7 @@ class ListItem:
         else:
             # For ordered lists, preserve the original marker
             return f"{indent}{self.marker.as_string()}{self.content}"
-    
+
     def has_continuation(self) -> bool:
         """Check if this item has continuation lines."""
         return len(self.lines) > 1
@@ -264,39 +328,39 @@ class ListBlock(Block):
     list_type: ListType
     items: List[ListItem] = field(default_factory=list)
     nested_lists: Dict[int, 'ListBlock'] = field(default_factory=dict)  # For mixed list types
-    
+
     def add_item(self, item: ListItem) -> None:
         """Add an item to the list with validation."""
         if not isinstance(item, ListItem):
             raise TypeError(f"Expected ListItem instance, got {type(item)}")
-        
+
         # Validate that item type matches list type (for non-nested items)
         if item.level == 0 and item.marker.marker_type != self.list_type:
             raise ValueError(f"List type mismatch: expected {self.list_type.value}, got {item.marker.marker_type.value}")
-        
+
         self.items.append(item)
-    
+
     def add_nested_list(self, nested_list: 'ListBlock', parent_index: int) -> None:
         """Add a nested list of different type."""
         if not isinstance(nested_list, ListBlock):
             raise TypeError(f"Expected ListBlock instance, got {type(nested_list)}")
         self.nested_lists[parent_index] = nested_list
-    
+
     def is_empty(self) -> bool:
         """Check if list has no items."""
         return len(self.items) == 0
-    
+
     def get_max_level(self) -> int:
         """Get the maximum nesting level in the list."""
         if not self.items:
             return -1
         return max(item.level for item in self.items)
-    
+
     def to_markdown(self) -> str:
         """Convert list to markdown format."""
         if self.is_empty():
             return ""
-        
+
         lines = []
         for i, item in enumerate(self.items):
             # Check if this item has a nested list of different type
@@ -313,9 +377,9 @@ class ListBlock(Block):
                     lines.extend(indented_lines)
             else:
                 lines.append(self._format_item_markdown(item))
-        
+
         return '\n'.join(lines)
-    
+
     def _format_item_markdown(self, item: ListItem) -> str:
         """Format a single item to markdown."""
         indent = "  " * item.level
@@ -324,7 +388,7 @@ class ListBlock(Block):
         else:
             # For ordered lists, use sequential numbering
             return f"{indent}{self._get_item_number(item)}. {item.content}"
-    
+
     def _get_item_number(self, target_item: ListItem) -> str:
         """Get the appropriate number for an ordered list item."""
         # Count items at the same level that come before this item
@@ -335,6 +399,48 @@ class ListBlock(Block):
             if item.level == target_item.level:
                 count += 1
         return str(count)
+
+
+@dataclass
+class CodeBlock(Block):
+    """
+    Represents a code block in the document with language and style information.
+    
+    Follows Single Responsibility Principle - only responsible for code block data.
+    """
+    lines: List[Line] = field(default_factory=list)
+    language: CodeLanguage = CodeLanguage.UNKNOWN
+    style: Optional[CodeStyle] = None
+
+    @property
+    def content(self) -> str:
+        """Get concatenated text content from all lines with preserved formatting."""
+        return "\n".join(line.text for line in self.lines)
+
+    def add_line(self, line: Line) -> None:
+        """Add a line to the code block."""
+        if not isinstance(line, Line):
+            raise TypeError(f"Expected Line instance, got {type(line)}")
+        self.lines.append(line)
+
+    def is_empty(self) -> bool:
+        """Check if code block has no meaningful content."""
+        return not any(line.text.strip() for line in self.lines)
+
+    def to_markdown(self) -> str:
+        """Convert code block to markdown format with language specification."""
+        if self.is_empty():
+            return ""
+
+        # Use language identifier if known, otherwise use generic code block
+        language_spec = "" if self.language == CodeLanguage.UNKNOWN else self.language.value
+
+        # Build markdown with preserved whitespace
+        lines = [f"```{language_spec}"]
+        lines.extend(line.text for line in self.lines)
+        lines.append("```")
+
+        return "\n".join(lines)
 
 
 @dataclass

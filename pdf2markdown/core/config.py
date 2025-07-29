@@ -23,23 +23,23 @@ class ListDetectionConfig:
     This value object encapsulates all list detection configuration
     with validation and default values.
     """
-    
+
     # Detection settings
     indentation_threshold: float = 10.0  # Points of x-position difference per level
     continuation_indent_threshold: float = 5.0  # Threshold for continuation detection
     max_nesting_level: int = 3  # Maximum supported nesting (0-3)
-    
+
     # Pattern settings
     enable_bullet_detection: bool = True
     enable_numbered_detection: bool = True
     enable_alphabetic_detection: bool = True
     enable_roman_detection: bool = True
     enable_parenthetical_detection: bool = True
-    
+
     def __post_init__(self) -> None:
         """Validate list detection configuration."""
         self._validate()
-    
+
     def _validate(self) -> None:
         """Validate all configuration values."""
         if self.indentation_threshold <= 0:
@@ -47,13 +47,13 @@ class ListDetectionConfig:
                 "indentation_threshold must be positive",
                 field="indentation_threshold"
             )
-        
+
         if self.continuation_indent_threshold <= 0:
             raise ValidationError(
                 "continuation_indent_threshold must be positive",
                 field="continuation_indent_threshold"
             )
-        
+
         if not 0 <= self.max_nesting_level <= 3:
             raise ValidationError(
                 "max_nesting_level must be between 0 and 3",
@@ -288,7 +288,7 @@ class ConfigurationManager:
                 max_log_file_size_mb=self._get_env_int("PDF2MD_LOG_FILE_SIZE_MB", 10),
                 backup_count=self._get_env_int("PDF2MD_LOG_BACKUP_COUNT", 3),
             )
-            
+
             # Load list detection configuration
             list_detection_config = ListDetectionConfig(
                 indentation_threshold=self._get_env_float("PDF2MD_LIST_INDENT_THRESHOLD", 10.0),

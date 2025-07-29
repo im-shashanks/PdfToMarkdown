@@ -1,9 +1,10 @@
 """Document analyzer interface for document type recognition."""
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict
 
 from pdf2markdown.domain.models import Document
 
@@ -29,7 +30,7 @@ class DocumentAnalysis:
     confidence: float  # 0.0 to 1.0
     characteristics: Dict[str, float]  # Feature scores
     suggested_processing_strategy: str
-    
+
     def is_confident(self, threshold: float = 0.7) -> bool:
         """Check if analysis confidence meets threshold."""
         return self.confidence >= threshold
@@ -41,7 +42,7 @@ class DocumentAnalyzerInterface(ABC):
     
     Follows Interface Segregation Principle - focused on document analysis only.
     """
-    
+
     @abstractmethod
     def analyze_document_type(self, document: Document) -> DocumentAnalysis:
         """
@@ -54,7 +55,7 @@ class DocumentAnalyzerInterface(ABC):
             DocumentAnalysis: Analysis result with type and confidence
         """
         pass
-        
+
     @abstractmethod
     def get_processing_recommendations(self, analysis: DocumentAnalysis) -> Dict[str, any]:
         """

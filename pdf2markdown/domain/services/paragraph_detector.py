@@ -55,11 +55,11 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         if not document.blocks:
             return document
-            
+
         # Group consecutive text blocks for batch processing
         block_groups = self._group_consecutive_text_blocks(document.blocks)
         new_blocks: List[Block] = []
-        
+
         for group in block_groups:
             if self._is_text_block_group(group):
                 # Process text block group with enhanced logic
@@ -68,7 +68,7 @@ class ParagraphDetector(ParagraphDetectorInterface):
             else:
                 # Preserve non-text blocks as-is
                 new_blocks.extend(group)
-        
+
         return Document(
             title=document.title,
             blocks=new_blocks,
@@ -126,7 +126,7 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         if not paragraphs:
             return []
-        
+
         if not self.content_aware_merging:
             return paragraphs  # Skip merging if disabled
 
@@ -330,29 +330,29 @@ class ParagraphDetector(ParagraphDetectorInterface):
         directly with PDF coordinate data rather than pre-processed text blocks.
         """
         from pathlib import Path as PathlibPath
-        
+
         try:
             parser = PdfMinerParser()
             lines_data = list(parser.extract_line_elements(PathlibPath(file_path)))
-            
+
             if not lines_data:
                 return Document(metadata={'source_file': str(file_path)})
-            
+
             # Group lines by page and sort by vertical position
             pages_lines = {}
             for text, x_pos, y_pos, height, page_num in lines_data:
                 if page_num not in pages_lines:
                     pages_lines[page_num] = []
                 pages_lines[page_num].append((text, x_pos, y_pos, height))
-            
+
             # Process each page separately
             document = Document(metadata={'source_file': str(file_path)})
-            
+
             for page_num in sorted(pages_lines.keys()):
                 page_lines_data = pages_lines[page_num]
                 # Sort by y-position (descending, as PDF coordinates are bottom-up)
                 page_lines_data.sort(key=lambda x: x[2], reverse=True)
-                
+
                 # Create Line objects from coordinate data
                 page_lines = []
                 for text, x_pos, y_pos, height in page_lines_data:
@@ -363,27 +363,27 @@ class ParagraphDetector(ParagraphDetectorInterface):
                             y_position=y_pos,
                             height=height
                         ))
-                
+
                 # Detect paragraph boundaries using spacing analysis
                 spacing_analysis = self._analyze_line_spacing(page_lines)
                 paragraph_breaks = spacing_analysis.get('paragraph_breaks', [])
-                
+
                 # Split lines into paragraphs
                 paragraphs = self._split_lines_at_paragraph_breaks(
                     page_lines, paragraph_breaks
                 )
-                
+
                 # Add paragraphs to document
                 for paragraph in paragraphs:
                     if not paragraph.is_empty():
                         document.add_block(paragraph)
-            
+
             return document
-            
+
         except Exception as e:
             # Fallback to basic document structure
             return Document(metadata={'source_file': str(file_path), 'error': str(e)})
-            
+
     def _group_consecutive_text_blocks(self, blocks: List[Block]) -> List[List[Block]]:
         """
         Group consecutive text blocks for batch processing.
@@ -394,10 +394,10 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         if not blocks:
             return []
-            
+
         groups = []
         current_group = []
-        
+
         for block in blocks:
             if isinstance(block, TextBlock):
                 current_group.append(block)
@@ -407,17 +407,17 @@ class ParagraphDetector(ParagraphDetectorInterface):
                     groups.append(current_group)
                     current_group = []
                 groups.append([block])  # Single non-text block group
-        
+
         # Add any remaining text blocks
         if current_group:
             groups.append(current_group)
-            
+
         return groups
-    
+
     def _is_text_block_group(self, group: List[Block]) -> bool:
         """Check if a group consists of text blocks."""
         return group and isinstance(group[0], TextBlock)
-    
+
     def _process_text_block_group(self, text_blocks: List[TextBlock]) -> List[Block]:
         """
         Process a group of consecutive text blocks with enhanced logic.
@@ -430,23 +430,23 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         if not text_blocks:
             return []
-            
+
         # Convert text blocks to paragraphs
         paragraphs = []
         for text_block in text_blocks:
             paragraph = self.convert_text_block_to_paragraph(text_block)
             if not paragraph.is_empty():
                 paragraphs.append(paragraph)
-        
+
         if not paragraphs:
             return []
-        
+
         # Apply enhanced merging logic
         merged_paragraphs = self.merge_continuous_paragraphs(paragraphs)
-        
+
         # Filter out empty paragraphs after merging
         return [p for p in merged_paragraphs if not p.is_empty()]
-    
+
     def _should_merge_paragraphs_enhanced(self, para1: Paragraph, para2: Paragraph) -> bool:
         """
         Enhanced paragraph merging logic with multiple criteria.
@@ -461,45 +461,45 @@ class ParagraphDetector(ParagraphDetectorInterface):
         # Get content for analysis
         content1 = para1.content.strip()
         content2 = para2.content.strip()
-        
+
         if not content1 or not content2:
             return False
-            
+
         # CRITICAL: Never merge resume section headers
-        if (self._is_resume_section_header(content1) or 
+        if (self._is_resume_section_header(content1) or
             self._is_resume_section_header(content2)):
             return False
-            
+
         # Never merge if either looks like a major section header
         if (self._is_section_header(content1) or self._is_section_header(content2)):
             return False
-            
+
         # Never merge across significant font size differences (indicates hierarchy)
-        if (hasattr(para1, 'font_size') and hasattr(para2, 'font_size') and 
+        if (hasattr(para1, 'font_size') and hasattr(para2, 'font_size') and
             para1.font_size is not None and para2.font_size is not None):
             if abs(para1.font_size - para2.font_size) > 0.5:  # Even smaller differences
                 return False
-                
+
         # Never merge list items with non-list content
         if (self._is_list_item(content1) and not self._is_list_item(content2)) or \
            (self._is_list_item(content2) and not self._is_list_item(content1)):
             return False
-            
+
         # Only merge list items if they're the same type
         if self._is_list_item(content1) and self._is_list_item(content2):
             return self._is_same_list_type(content1, content2)
-            
+
         # Check for explicit continuation markers (only clear cases)
         if self._is_explicit_continuation(content2):
             return True
-            
+
         # Check for natural sentence continuation (very conservative)
         if self._suggests_sentence_continuation(content1, content2):
             return True
-                
+
         # Default: DON'T merge (very conservative for resume structure)
         return False
-    
+
     def _is_explicit_continuation(self, content: str) -> bool:
         """
         Check for explicit continuation indicators.
@@ -512,13 +512,13 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         content_stripped = content.strip()
         content_lower = content_stripped.lower()
-        
+
         # Starts with lowercase (excluding quoted text, numbers, proper nouns)
-        if (content_stripped and content_stripped[0].islower() and 
+        if (content_stripped and content_stripped[0].islower() and
             not content_stripped.startswith('"') and not content_stripped.startswith("'") and
             not any(content_lower.startswith(word) for word in ['i', 'a'])):
             return True
-            
+
         # Explicit continuation words
         continuation_starters = {
             'and', 'but', 'or', 'so', 'for', 'yet', 'nor',
@@ -526,10 +526,10 @@ class ParagraphDetector(ParagraphDetectorInterface):
             'nevertheless', 'consequently', 'thus', 'hence',
             'additionally', 'meanwhile', 'similarly'
         }
-        
+
         first_word = content_lower.split()[0] if content_lower.split() else ""
         return first_word in continuation_starters
-    
+
     def _is_section_header(self, content: str) -> bool:
         """
         Check if content appears to be a section header.
@@ -541,11 +541,11 @@ class ParagraphDetector(ParagraphDetectorInterface):
             bool: True if content appears to be a section header
         """
         content = content.strip()
-        
+
         # ALL CAPS sections
         if content.isupper() and 3 <= len(content) <= 50:
             return True
-            
+
         # Common section keywords
         section_keywords = {
             'education', 'experience', 'skills', 'summary', 'objective',
@@ -553,18 +553,18 @@ class ParagraphDetector(ParagraphDetectorInterface):
             'certifications', 'awards', 'career', 'professional',
             'employment', 'work history', 'technical skills'
         }
-        
+
         content_lower = content.lower()
         if any(keyword in content_lower for keyword in section_keywords):
             return True
-            
+
         # Short, title-case lines without terminal punctuation
-        if (content.istitle() and len(content.split()) <= 4 and 
+        if (content.istitle() and len(content.split()) <= 4 and
             not content.endswith(('.', '!', '?', ':', ';'))):
             return True
-            
+
         return False
-    
+
     def _is_list_item(self, content: str) -> bool:
         """
         Check if content appears to be a list item.
@@ -576,12 +576,12 @@ class ParagraphDetector(ParagraphDetectorInterface):
             bool: True if content appears to be a list item
         """
         content = content.strip()
-        
+
         # Bullet points
         bullet_markers = ['•', '◦', '▪', '▫', '■', '□', '○', '●', '-', '*']
         if any(content.startswith(marker) for marker in bullet_markers):
             return True
-            
+
         # Numbered lists
         numbered_patterns = [
             r'^\d+\.',  # 1. 2. 3.
@@ -590,14 +590,14 @@ class ParagraphDetector(ParagraphDetectorInterface):
             r'^[a-z]\.',  # a. b. c.
             r'^[A-Z]\.',  # A. B. C.
         ]
-        
+
         import re
         for pattern in numbered_patterns:
             if re.match(pattern, content):
                 return True
-                
+
         return False
-    
+
     def _is_same_list_type(self, content1: str, content2: str) -> bool:
         """
         Check if two list items are of the same type.
@@ -610,17 +610,17 @@ class ParagraphDetector(ParagraphDetectorInterface):
             bool: True if both items are from the same list type
         """
         import re
-        
+
         # Extract list markers
         def get_list_marker(content):
             content = content.strip()
-            
+
             # Bullet markers
             bullet_markers = ['•', '◦', '▪', '▫', '■', '□', '○', '●', '-', '*']
             for marker in bullet_markers:
                 if content.startswith(marker):
                     return marker
-                    
+
             # Numbered patterns
             numbered_patterns = [
                 (r'^(\d+)\.'),  # 1. 2. 3.
@@ -629,20 +629,20 @@ class ParagraphDetector(ParagraphDetectorInterface):
                 (r'^([a-z])\.'),  # a. b. c.
                 (r'^([A-Z])\.'),  # A. B. C.
             ]
-            
+
             for pattern in numbered_patterns:
                 match = re.match(pattern, content)
                 if match:
                     return pattern  # Return pattern type, not specific number
-                    
+
             return None
-        
+
         marker1 = get_list_marker(content1)
         marker2 = get_list_marker(content2)
-        
+
         # Both must have markers and they should be the same type
         return marker1 is not None and marker2 is not None and marker1 == marker2
-    
+
     def _suggests_sentence_continuation(self, content1: str, content2: str) -> bool:
         """
         Check if content suggests natural sentence continuation.
@@ -656,20 +656,20 @@ class ParagraphDetector(ParagraphDetectorInterface):
         """
         content1 = content1.strip()
         content2 = content2.strip()
-        
+
         # First paragraph doesn't end with terminal punctuation
         if not content1.endswith(('.', '!', '?', ':', ';')):
             # Second paragraph starts with lowercase or continuation word
             if (content2 and content2[0].islower()) or self._is_explicit_continuation(content2):
                 return True
-                
+
         # Check for common continuation patterns
-        if (content1.endswith(',') and content2 and 
+        if (content1.endswith(',') and content2 and
             not content2[0].isupper() and not self._is_section_header(content2)):
             return True
-            
+
         return False
-        
+
     def _is_resume_section_header(self, content: str) -> bool:
         """
         Detect resume section headers to prevent merging.
@@ -678,7 +678,7 @@ class ParagraphDetector(ParagraphDetectorInterface):
             bool: True if content is a resume section header
         """
         content_clean = content.strip().upper()
-        
+
         # Major resume sections
         resume_sections = {
             'PROFESSIONAL SUMMARY', 'EXECUTIVE SUMMARY', 'SUMMARY', 'OBJECTIVE',
@@ -688,20 +688,20 @@ class ParagraphDetector(ParagraphDetectorInterface):
             'CERTIFICATIONS', 'CERTIFICATES', 'AWARDS', 'HONORS',
             'PROJECTS', 'PUBLICATIONS', 'RESEARCH', 'REFERENCES'
         }
-        
+
         # Check for exact matches
         if content_clean in resume_sections:
             return True
-            
+
         # Check for single word sections
-        single_words = {'SUMMARY', 'OBJECTIVE', 'EXPERIENCE', 'EDUCATION', 
+        single_words = {'SUMMARY', 'OBJECTIVE', 'EXPERIENCE', 'EDUCATION',
                        'SKILLS', 'CERTIFICATIONS', 'AWARDS', 'PROJECTS', 'REFERENCES'}
         if content_clean in single_words:
             return True
-            
+
         # Check if content starts with a major section keyword
         for section in resume_sections:
             if content_clean.startswith(section) and len(content_clean) <= len(section) + 10:
                 return True
-                
+
         return False

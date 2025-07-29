@@ -1,16 +1,18 @@
 """PDFMiner-based parser implementation following Strategy pattern."""
 
 import logging
+import re
 from pathlib import Path
+from typing import Dict
 from typing import Iterator
+from typing import List
+from typing import Tuple
 
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTChar
 from pdfminer.layout import LTTextBox
 from pdfminer.layout import LTTextContainer
 from pdfminer.layout import LTTextLine
-from typing import List, Tuple, Dict
-import re
 
 from pdf2markdown.domain.interfaces import PdfParserStrategy
 from pdf2markdown.domain.interfaces import TextElement
@@ -93,7 +95,7 @@ class PdfMinerParser(PdfParserStrategy):
         """Extract text elements from a single text line with precise positioning."""
         # Use line.get_text() directly to preserve spacing instead of char-by-char reconstruction
         text_content = line.get_text()
-        
+
         # Still need to analyze characters for formatting information
         font_sizes = []
         font_names = []
@@ -117,14 +119,14 @@ class PdfMinerParser(PdfParserStrategy):
             # Enhanced formatting analysis for the line
             avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 12.0
             dominant_font = max(set(font_names), key=font_names.count) if font_names else None
-            
+
             # Use weighted bold/italic detection (70% threshold for mixed formatting)
             is_bold = sum(is_bold_chars) > len(is_bold_chars) * 0.3 if is_bold_chars else False
             is_italic = sum(is_italic_chars) > len(is_italic_chars) * 0.3 if is_italic_chars else False
-            
+
             # Additional style analysis
             style_metadata = self._analyze_text_style(text_content, font_names, font_sizes)
-            
+
             # Use line-level positioning for more accurate coordinates
             line_x = line.x0  # Left edge of the line
             line_y = line.y1  # Top edge of the line
@@ -141,11 +143,11 @@ class PdfMinerParser(PdfParserStrategy):
                 y_position=line_y,
                 page_number=page_number
             )
-            
+
             # Add style metadata as attributes (maintaining interface compatibility)
             if hasattr(element, '__dict__'):
                 element.__dict__.update(style_metadata)
-            
+
             yield element
 
     def extract_line_elements(self, file_path: Path) -> Iterator[Tuple[str, float, float, float, int]]:
@@ -240,7 +242,7 @@ class PdfMinerParser(PdfParserStrategy):
         except Exception as e:
             self.logger.error(f"Error creating document from {file_path}: {e}")
             raise
-            
+
     def _detect_bold_formatting(self, font_name: str) -> bool:
         """
         Enhanced bold detection using comprehensive font name analysis.
@@ -253,15 +255,15 @@ class PdfMinerParser(PdfParserStrategy):
         """
         if not font_name:
             return False
-            
+
         font_name_lower = font_name.lower()
-        
+
         # Primary bold indicators
         bold_indicators = [
             'bold', 'black', 'heavy', 'extrabold', 'ultrabold',
             'semibold', 'demibold', 'medium', 'thick'
         ]
-        
+
         # Font family specific indicators
         family_bold_patterns = [
             r'.*-b$',  # Font names ending with -B
@@ -270,19 +272,19 @@ class PdfMinerParser(PdfParserStrategy):
             r'.*black.*',  # Any font with 'black' in name
             r'.*heavy.*',  # Any font with 'heavy' in name
         ]
-        
+
         # Check primary indicators
         for indicator in bold_indicators:
             if indicator in font_name_lower:
                 return True
-                
+
         # Check pattern-based indicators
         for pattern in family_bold_patterns:
             if re.match(pattern, font_name_lower):
                 return True
-                
+
         return False
-        
+
     def _detect_italic_formatting(self, font_name: str) -> bool:
         """
         Enhanced italic detection using comprehensive font name analysis.
@@ -295,14 +297,14 @@ class PdfMinerParser(PdfParserStrategy):
         """
         if not font_name:
             return False
-            
+
         font_name_lower = font_name.lower()
-        
+
         # Primary italic indicators
         italic_indicators = [
             'italic', 'oblique', 'slanted', 'cursive'
         ]
-        
+
         # Font family specific patterns
         italic_patterns = [
             r'.*-i$',  # Font names ending with -I
@@ -310,19 +312,19 @@ class PdfMinerParser(PdfParserStrategy):
             r'.*italic.*',  # Any font with 'italic' in name
             r'.*oblique.*',  # Any font with 'oblique' in name
         ]
-        
+
         # Check primary indicators
         for indicator in italic_indicators:
             if indicator in font_name_lower:
                 return True
-                
+
         # Check pattern-based indicators
         for pattern in italic_patterns:
             if re.match(pattern, font_name_lower):
                 return True
-                
+
         return False
-        
+
     def _analyze_text_style(self, text_content: str, font_names: List[str], font_sizes: List[float]) -> Dict:
         """
         Analyze additional text style characteristics.
@@ -336,29 +338,29 @@ class PdfMinerParser(PdfParserStrategy):
             Dict: Style metadata including formatting patterns
         """
         style_metadata = {}
-        
+
         # Analyze text case patterns
         stripped_text = text_content.strip()
         if stripped_text:
             style_metadata['is_all_caps'] = stripped_text.isupper()
             style_metadata['is_title_case'] = stripped_text.istitle()
             style_metadata['has_mixed_case'] = not (stripped_text.isupper() or stripped_text.islower())
-            
+
         # Analyze font consistency
         unique_fonts = set(font_names) if font_names else set()
         style_metadata['font_consistency'] = len(unique_fonts) <= 1
         style_metadata['font_variety_count'] = len(unique_fonts)
-        
+
         # Analyze size consistency
         if font_sizes:
             size_variance = max(font_sizes) - min(font_sizes) if len(font_sizes) > 1 else 0.0
             style_metadata['size_consistency'] = size_variance < 1.0
             style_metadata['size_variance'] = size_variance
-            
+
         # Analyze punctuation patterns (headings often lack terminal punctuation)
         style_metadata['has_terminal_punctuation'] = stripped_text.endswith(('.', '!', '?', ':', ';'))
-        
+
         # Analyze word count (headings are typically shorter)
         style_metadata['word_count'] = len(stripped_text.split())
-        
+
         return style_metadata

@@ -1,9 +1,14 @@
 """Interface for list detection services."""
 
-from abc import ABC, abstractmethod
-from typing import List, Optional
+from abc import ABC
+from abc import abstractmethod
+from typing import List
+from typing import Optional
 
-from pdf2markdown.domain.models.document import Line, ListItem, ListBlock, ListMarker
+from pdf2markdown.domain.models.document import Line
+from pdf2markdown.domain.models.document import ListBlock
+from pdf2markdown.domain.models.document import ListItem
+from pdf2markdown.domain.models.document import ListMarker
 
 
 class ListDetectorInterface(ABC):

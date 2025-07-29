@@ -5,8 +5,8 @@ This module defines the contract for document formatters,
 enabling different output formats while maintaining clean architecture.
 """
 
-from abc import ABC, abstractmethod
-from pathlib import Path
+from abc import ABC
+from abc import abstractmethod
 
 from pdf2markdown.domain.models import Document
 

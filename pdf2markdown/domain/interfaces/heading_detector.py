@@ -5,7 +5,8 @@ This module defines the contract for heading detection implementations,
 following the Interface Segregation Principle and enabling dependency injection.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 
 from pdf2markdown.domain.models import Document
 

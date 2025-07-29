@@ -16,7 +16,8 @@ from pdf2markdown.cli.argument_parser import create_argument_parser
 from pdf2markdown.cli.output_handler import create_output_handler
 from pdf2markdown.core.config import ApplicationConfig
 from pdf2markdown.core.config import config_manager
-from pdf2markdown.core.dependency_injection import DependencyInjectionContainer, create_default_container
+from pdf2markdown.core.dependency_injection import DependencyInjectionContainer
+from pdf2markdown.core.dependency_injection import create_default_container
 from pdf2markdown.core.exceptions import ConfigurationError
 from pdf2markdown.core.exceptions import FileSystemError
 from pdf2markdown.core.exceptions import InvalidPdfError
@@ -24,7 +25,14 @@ from pdf2markdown.core.exceptions import PdfToMarkdownError
 from pdf2markdown.core.exceptions import ProcessingError
 from pdf2markdown.core.exceptions import ValidationError
 from pdf2markdown.core.file_validator import create_file_validator
-from pdf2markdown.domain.interfaces import DocumentAnalyzerInterface, FormatterInterface, HeadingDetectorInterface, ParagraphDetectorInterface, PdfParserStrategy, ListDetectorInterface
+from pdf2markdown.domain.interfaces import CodeDetectorInterface
+from pdf2markdown.domain.interfaces import DocumentAnalyzerInterface
+from pdf2markdown.domain.interfaces import FormatterInterface
+from pdf2markdown.domain.interfaces import HeadingDetectorInterface
+from pdf2markdown.domain.interfaces import LanguageDetectorInterface
+from pdf2markdown.domain.interfaces import ListDetectorInterface
+from pdf2markdown.domain.interfaces import ParagraphDetectorInterface
+from pdf2markdown.domain.interfaces import PdfParserStrategy
 from pdf2markdown.domain.models.document import Document
 
 
@@ -37,7 +45,7 @@ class PdfToMarkdownCli:
     """
 
     def __init__(
-        self, 
+        self,
         config: Optional[ApplicationConfig] = None,
         container: Optional[DependencyInjectionContainer] = None
     ) -> None:
@@ -60,6 +68,8 @@ class PdfToMarkdownCli:
         self._heading_detector = self._container.resolve(HeadingDetectorInterface)
         self._paragraph_detector = self._container.resolve(ParagraphDetectorInterface)
         self._list_detector = self._container.resolve(ListDetectorInterface)
+        self._code_detector = self._container.resolve(CodeDetectorInterface)
+        self._language_detector = self._container.resolve(LanguageDetectorInterface)
         self._markdown_formatter = self._container.resolve(FormatterInterface)
 
     def run(self, args: Optional[list] = None) -> int:
@@ -188,7 +198,7 @@ class PdfToMarkdownCli:
             document_analysis = self._document_analyzer.analyze_document_type(document)
             self._logger.info(f"Detected document type: {document_analysis.document_type.value} "
                             f"(confidence: {document_analysis.confidence:.2f})")
-            
+
             # Get processing recommendations based on document type
             recommendations = self._document_analyzer.get_processing_recommendations(document_analysis)
             self._logger.debug(f"Using processing strategy: {document_analysis.suggested_processing_strategy}")
@@ -199,9 +209,9 @@ class PdfToMarkdownCli:
             paragraph_config = recommendations.get('paragraph_detection', {})
             self._paragraph_detector.line_spacing_threshold = paragraph_config.get('line_spacing_threshold', 1.8)
             self._paragraph_detector.content_aware_merging = not paragraph_config.get('merge_aggressive', False)
-            
+
             document_with_paragraphs = self._paragraph_detector.detect_paragraphs_in_document(document)
-            
+
             # Count paragraphs for logging
             paragraph_count = sum(1 for block in document_with_paragraphs.blocks
                                 if hasattr(block, 'lines'))
@@ -209,10 +219,10 @@ class PdfToMarkdownCli:
 
             # Step 4: Apply list detection
             self._logger.debug("Detecting list structures...")
-            
+
             # Use the enhanced parser's line extraction for precise list detection
             from pdf2markdown.domain.models.document import Line
-            
+
             # Extract lines with positioning information
             lines = []
             try:
@@ -222,38 +232,75 @@ class PdfToMarkdownCli:
                 self._logger.warning(f"Could not extract line positioning for list detection: {e}")
                 # Fallback: continue without list detection
                 lines = []
-            
+
             if lines:
                 # Detect list items from positioned lines
                 list_items = self._list_detector.detect_list_items_from_lines(lines)
                 if list_items:
                     # Group list items into blocks
                     list_blocks = self._list_detector.group_list_items_into_blocks(list_items)
-                    
+
                     # Create a new document with list blocks integrated
                     document_with_lists = Document(
                         title=document_with_paragraphs.title,
                         metadata=document_with_paragraphs.metadata
                     )
-                    
+
                     # Merge list blocks with existing blocks based on positioning
                     self._integrate_list_blocks_into_document(
-                        document_with_lists, 
-                        document_with_paragraphs, 
+                        document_with_lists,
+                        document_with_paragraphs,
                         list_blocks
                     )
-                    
+
                     list_count = len(list_blocks)
                     item_count = sum(len(block.items) for block in list_blocks)
                     self._logger.info(f"Detected {list_count} lists with {item_count} total items")
-                    
+
                     document_with_paragraphs = document_with_lists
                 else:
                     self._logger.debug("No list structures detected")
             else:
                 self._logger.debug("Skipping list detection due to line extraction issues")
 
-            # Step 5: Apply adaptive heading detection
+            # Step 5: Apply code block detection
+            self._logger.debug("Detecting code blocks...")
+
+            # Use the same line extraction for code detection
+            if lines:
+                # Detect code blocks from positioned lines
+                code_blocks = self._code_detector.detect_code_blocks(lines)
+
+                if code_blocks:
+                    # Apply language detection to each code block
+                    for code_block in code_blocks:
+                        analyzed_block = self._language_detector.analyze_code_block(code_block)
+                        # Update the code block with detected language
+                        code_block.language = analyzed_block.language
+
+                    # Create a new document with code blocks integrated
+                    document_with_code = Document(
+                        title=document_with_paragraphs.title,
+                        metadata=document_with_paragraphs.metadata
+                    )
+
+                    # Merge code blocks with existing blocks based on positioning
+                    self._integrate_code_blocks_into_document(
+                        document_with_code,
+                        document_with_paragraphs,
+                        code_blocks
+                    )
+
+                    code_count = len(code_blocks)
+                    self._logger.info(f"Detected {code_count} code blocks")
+
+                    document_with_paragraphs = document_with_code
+                else:
+                    self._logger.debug("No code blocks detected")
+            else:
+                self._logger.debug("Skipping code detection due to line extraction issues")
+
+            # Step 6: Apply adaptive heading detection
             self._logger.debug("Detecting headings with adaptive processing...")
             # Configure heading detector based on recommendations
             heading_config = recommendations.get('heading_detection', {})
@@ -262,26 +309,26 @@ class PdfToMarkdownCli:
                 # Scale pattern weights based on document type
                 pattern_weight = heading_config.get('pattern_weight', 1.0)
                 caps_weight = heading_config.get('caps_weight', 1.0)
-                
+
             document_with_headings = self._heading_detector.detect_headings_in_document(document_with_paragraphs)
 
             # Count headings for logging
             heading_count = sum(1 for block in document_with_headings.blocks
                               if hasattr(block, 'level'))
             self._logger.info(f"Detected {heading_count} headings in document")
-            
+
             # Log document analysis results for debugging
             if self._config.debug:
                 self._logger.debug(f"Document characteristics: {document_analysis.characteristics}")
                 self._logger.debug(f"Processing recommendations: {recommendations}")
 
-            # Step 5: Format to Markdown
+            # Step 7: Format to Markdown
             self._logger.debug("Formatting to Markdown...")
             self._markdown_formatter.format_to_file(document_with_headings, str(cli_args.output_file))
 
             self._logger.info(f"Successfully created Markdown output: {cli_args.output_file}")
-            
-            # Step 6: Quality validation (if enabled)
+
+            # Step 8: Quality validation (if enabled)
             if document_analysis.confidence < 0.5:
                 self._output_handler.warning(
                     f"Low confidence in document type detection ({document_analysis.confidence:.2f}). "
@@ -307,7 +354,7 @@ class PdfToMarkdownCli:
                     error_context = f" (Document type: {document_analysis.document_type.value})"
             except:
                 pass  # Ignore errors in error reporting
-                
+
             raise ProcessingError(
                 f"PDF processing failed: {e}{error_context}",
                 stage="convert",
@@ -334,7 +381,7 @@ class PdfToMarkdownCli:
         # 1. Add all non-list blocks from source
         # 2. Add all list blocks
         # Future enhancement: merge based on y-position to maintain proper order
-        
+
         # Extract list item text for comparison
         list_item_texts = set()
         for list_block in list_blocks:
@@ -342,7 +389,7 @@ class PdfToMarkdownCli:
                 # Remove leading markers for comparison
                 clean_text = item.content.strip()
                 list_item_texts.add(clean_text)
-        
+
         # Add blocks from source, skipping those that are now represented as lists
         for block in source_document.blocks:
             block_text = ""
@@ -350,19 +397,69 @@ class PdfToMarkdownCli:
                 block_text = block.content.strip()
             elif hasattr(block, 'lines'):
                 block_text = " ".join(line.text.strip() for line in block.lines)
-            
+
             # Skip blocks that are now represented as list items
             is_list_content = any(
                 clean_text in block_text or block_text in clean_text
                 for clean_text in list_item_texts
             )
-            
+
             if not is_list_content:
                 target_document.add_block(block)
-        
+
         # Add all detected list blocks
         for list_block in list_blocks:
             target_document.add_block(list_block)
+
+    def _integrate_code_blocks_into_document(
+        self,
+        target_document,
+        source_document,
+        code_blocks
+    ) -> None:
+        """Integrate detected code blocks into the document structure.
+        
+        This method merges code blocks with existing paragraph/text blocks,
+        replacing text that was identified as code content with proper CodeBlock objects.
+        
+        Args:
+            target_document: Document to populate with integrated blocks
+            source_document: Original document with paragraph blocks
+            code_blocks: Detected code blocks to integrate
+        """
+        # Extract code block text for comparison
+        code_block_texts = set()
+        for code_block in code_blocks:
+            # Use the full content of the code block for comparison
+            clean_text = code_block.content.strip()
+            code_block_texts.add(clean_text)
+
+            # Also add individual lines for more flexible matching
+            for line in code_block.lines:
+                line_text = line.text.strip()
+                if line_text:
+                    code_block_texts.add(line_text)
+
+        # Add blocks from source, skipping those that are now represented as code blocks
+        for block in source_document.blocks:
+            block_text = ""
+            if hasattr(block, 'content'):
+                block_text = block.content.strip()
+            elif hasattr(block, 'lines'):
+                block_text = " ".join(line.text.strip() for line in block.lines)
+
+            # Skip blocks that are now represented as code blocks
+            is_code_content = any(
+                clean_text in block_text or block_text in clean_text
+                for clean_text in code_block_texts
+            )
+
+            if not is_code_content:
+                target_document.add_block(block)
+
+        # Add all detected code blocks
+        for code_block in code_blocks:
+            target_document.add_block(code_block)
 
     def _setup_logging(self) -> logging.Logger:
         """Set up application logging.

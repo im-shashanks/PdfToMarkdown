@@ -7,10 +7,9 @@ from dataclasses import field
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Set
-from typing import Tuple
 
-from pdf2markdown.domain.interfaces import HeadingDetectorInterface, TextElement
+from pdf2markdown.domain.interfaces import HeadingDetectorInterface
+from pdf2markdown.domain.interfaces import TextElement
 from pdf2markdown.domain.models import Block
 from pdf2markdown.domain.models import Document
 from pdf2markdown.domain.models import Heading
@@ -101,7 +100,7 @@ class HeadingDetector(HeadingDetectorInterface):
         # Process each block and determine if it should be a heading
         for block in document.blocks:
             # Handle both TextBlock and Paragraph objects
-            if ((isinstance(block, TextBlock) or hasattr(block, 'lines')) 
+            if ((isinstance(block, TextBlock) or hasattr(block, 'lines'))
                 and hasattr(block, 'font_size') and block.font_size):
                 heading_level = self._determine_heading_level(
                     block, baseline_font_size
@@ -161,12 +160,12 @@ class HeadingDetector(HeadingDetectorInterface):
             return 12.0  # Default font size
 
         font_sizes = [element.font_size for element in text_elements]
-        
+
         # Remove extreme outliers (very large or small fonts)
         sorted_sizes = sorted(font_sizes)
         q1_idx = len(sorted_sizes) // 4
         q3_idx = 3 * len(sorted_sizes) // 4
-        
+
         if len(sorted_sizes) > 4:
             # Use interquartile range to filter outliers
             q1 = sorted_sizes[q1_idx]
@@ -174,15 +173,15 @@ class HeadingDetector(HeadingDetectorInterface):
             iqr = q3 - q1
             lower_bound = q1 - 1.5 * iqr
             upper_bound = q3 + 1.5 * iqr
-            
-            filtered_sizes = [size for size in font_sizes 
+
+            filtered_sizes = [size for size in font_sizes
                             if lower_bound <= size <= upper_bound]
         else:
             filtered_sizes = font_sizes
-        
+
         if not filtered_sizes:
             filtered_sizes = font_sizes
-        
+
         # Try multiple approaches to find baseline
         try:
             # Primary: Most frequent font size (mode)
@@ -195,11 +194,11 @@ class HeadingDetector(HeadingDetectorInterface):
             size_counts = {}
             for size in font_sizes:
                 size_counts[size] = size_counts.get(size, 0) + 1
-            
+
             if size_counts:
                 most_common_size = max(size_counts.items(), key=lambda x: x[1])[0]
                 return most_common_size
-            
+
             # Final fallback
             return min(font_sizes) if font_sizes else 12.0
 
@@ -224,7 +223,7 @@ class HeadingDetector(HeadingDetectorInterface):
             return None
 
         content = block.content.strip()
-        
+
         # Check content length constraints (more permissive for section headers)
         content_length = len(content)
         if content_length < 1 or content_length > 300:  # Increased limit for resume sections
@@ -233,35 +232,35 @@ class HeadingDetector(HeadingDetectorInterface):
         # Exclude content that looks like contact information
         if self._is_contact_information(content):
             return None
-            
+
         # CONTENT-FIRST ANALYSIS: Check for explicit resume section headers
         resume_section_level = self._detect_resume_section_header(content)
         if resume_section_level:
             return resume_section_level
-            
+
         # Check for name/title patterns (H1 candidates)
         if self._is_likely_name_or_title(content):
             return 1
-            
+
         # Font size analysis (secondary criterion)
         size_ratio = block.font_size / baseline_font_size
-        
+
         # Style characteristics
         style_bonus = 0.0
         if self._is_likely_bold(block):
             style_bonus += 0.5
-            
+
         # ALL CAPS analysis (strong indicator for resume sections)
         if content.isupper() and len(content.split()) <= 4:
             style_bonus += 1.0
-            
+
         # Calculate total heading score
         heading_score = style_bonus
-        
+
         # Add font size contribution (reduced weight)
         if size_ratio > 1.05:  # At least 5% larger than baseline
             heading_score += min((size_ratio - 1.0) * 2.0, 1.0)  # Cap font size contribution
-            
+
         # Determine level based on combined analysis
         if heading_score >= 1.5:
             # Use semantic context to determine level
@@ -273,10 +272,10 @@ class HeadingDetector(HeadingDetectorInterface):
                 return 4  # Styled subsections
             else:
                 return 5  # Minor headings
-                
+
         elif heading_score >= 0.8 and size_ratio > 1.1:
             return 6  # Weak headings
-            
+
         return None
 
     def _is_likely_bold(self, block: Block) -> bool:
@@ -293,12 +292,12 @@ class HeadingDetector(HeadingDetectorInterface):
             int: Heading level for resume sections, or None if not a section header
         """
         content_clean = content.strip().upper()
-        
+
         # Primary resume sections (H2 level)
         primary_sections = {
             'PROFESSIONAL SUMMARY', 'EXECUTIVE SUMMARY', 'SUMMARY', 'OBJECTIVE',
             'CAREER OBJECTIVE', 'PROFESSIONAL OBJECTIVE',
-            'EXPERIENCE', 'WORK EXPERIENCE', 'PROFESSIONAL EXPERIENCE', 
+            'EXPERIENCE', 'WORK EXPERIENCE', 'PROFESSIONAL EXPERIENCE',
             'CAREER EXPERIENCE', 'EMPLOYMENT HISTORY', 'WORK HISTORY',
             'EDUCATION', 'EDUCATIONAL BACKGROUND', 'ACADEMIC BACKGROUND',
             'SKILLS', 'TECHNICAL SKILLS', 'CORE COMPETENCIES', 'KEY SKILLS',
@@ -308,27 +307,27 @@ class HeadingDetector(HeadingDetectorInterface):
             'PUBLICATIONS', 'RESEARCH', 'PUBLICATIONS AND RESEARCH',
             'REFERENCES', 'PROFESSIONAL REFERENCES'
         }
-        
+
         # Check for exact matches
         if content_clean in primary_sections:
             return 2
-            
+
         # Check for partial matches (single word sections)
         single_word_sections = {
             'SUMMARY', 'OBJECTIVE', 'EXPERIENCE', 'EDUCATION', 'SKILLS',
             'CERTIFICATIONS', 'AWARDS', 'PROJECTS', 'PUBLICATIONS', 'REFERENCES'
         }
-        
+
         if content_clean in single_word_sections:
             return 2
-            
+
         # Check for section headers with additional text
         for section in primary_sections:
             if section in content_clean and len(content_clean) <= len(section) + 20:
                 return 2
-                
+
         return None
-        
+
     def _is_likely_name_or_title(self, content: str) -> bool:
         """
         Detect if content appears to be a person's name or professional title.
@@ -338,34 +337,34 @@ class HeadingDetector(HeadingDetectorInterface):
         """
         content = content.strip()
         words = content.split()
-        
+
         # Simple heuristics for names
         if (2 <= len(words) <= 4 and  # Reasonable name length
             len(content) <= 50 and  # Not too long
             all(word[0].isupper() for word in words if word) and  # Title case
             not any(char.isdigit() for char in content) and  # No numbers
             not content.endswith(('.', '!', '?', ':', ';'))):  # No terminal punctuation
-            
+
             # Additional checks to avoid false positives
             name_indicators = ['jr', 'sr', 'iii', 'phd', 'md', 'pe', 'cpa']
             business_words = ['company', 'corporation', 'manager', 'director', 'engineer']
-            
+
             content_lower = content.lower()
-            
+
             # Likely a name if it has name suffixes
             if any(indicator in content_lower for indicator in name_indicators):
                 return True
-                
+
             # Less likely if it contains business terms
             if any(word in content_lower for word in business_words):
                 return False
-                
+
             # If it's just 2-3 capitalized words, likely a name
             if 2 <= len(words) <= 3:
                 return True
-                
+
         return False
-        
+
     def _is_major_section_keyword(self, content: str) -> bool:
         """
         Check if content contains major resume section keywords.
@@ -378,9 +377,9 @@ class HeadingDetector(HeadingDetectorInterface):
             'experience', 'education', 'skills', 'summary', 'objective',
             'certifications', 'awards', 'projects', 'publications'
         }
-        
+
         return any(keyword in content_lower for keyword in major_keywords)
-        
+
     def _analyze_heading_context(self, content: str) -> float:
         """
         Analyze contextual indicators for heading detection.
@@ -389,46 +388,46 @@ class HeadingDetector(HeadingDetectorInterface):
             float: Context score (0.0 to 1.0) for heading likelihood
         """
         context_score = 0.0
-        
+
         # Short, standalone lines are more likely to be headings
         word_count = len(content.split())
         if word_count <= 5:
             context_score += 0.3
         elif word_count <= 10:
             context_score += 0.1
-            
+
         # Lines without terminal punctuation
         if not content.endswith(('.', '!', '?', ':', ';')):
             context_score += 0.2
-            
+
         # Lines with specific formatting
         if content.isupper():
             context_score += 0.3
         elif content.istitle():  # Title Case
             context_score += 0.2
-            
+
         return min(context_score, 1.0)  # Cap at 1.0
-    
+
     def _is_all_caps_section_heading(self, content: str) -> bool:
         """Enhanced ALL CAPS section heading detection."""
         content = content.strip()
-        
+
         # Must be ALL CAPS
         if not content.isupper():
             return False
-            
+
         # Must contain mostly letters (not just symbols/numbers)
         letter_count = sum(1 for c in content if c.isalpha())
         if letter_count < len(content) * 0.6:  # At least 60% letters (relaxed)
             return False
-            
+
         # Reasonable length for section headings
         if len(content) < 2 or len(content) > 80:  # More permissive range
             return False
-            
+
         # Enhanced section heading patterns (more comprehensive)
         section_keywords = {
-            'EDUCATION', 'SKILLS', 'EXPERIENCE', 'WORK', 'PROJECTS', 
+            'EDUCATION', 'SKILLS', 'EXPERIENCE', 'WORK', 'PROJECTS',
             'CERTIFICATIONS', 'AWARDS', 'SUMMARY', 'OBJECTIVE',
             'BACKGROUND', 'QUALIFICATIONS', 'ACHIEVEMENTS', 'CAREER',
             'PROFESSIONAL', 'TECHNICAL', 'EMPLOYMENT', 'ACADEMIC',
@@ -437,22 +436,22 @@ class HeadingDetector(HeadingDetectorInterface):
             'PUBLICATIONS', 'REFERENCES', 'HONORS', 'ACCOMPLISHMENTS',
             'COMPETENCIES', 'EXPERTISE', 'HISTORY'
         }
-        
+
         # Check if content contains any section keywords
         content_words = set(content.split())
         if content_words.intersection(section_keywords):
             return True
-            
+
         # Check if it's a short ALL CAPS phrase (likely a heading)
         if len(content.split()) <= 4 and len(content) <= 30:
             return True
-            
+
         return False
 
     def _is_contact_information(self, content: str) -> bool:
         """Determine if content appears to be contact information."""
         content = content.lower().strip()
-        
+
         # Contact info patterns
         contact_indicators = [
             '@',  # Email addresses
@@ -464,9 +463,9 @@ class HeadingDetector(HeadingDetectorInterface):
             'github',  # Code repositories
             'portfolio',  # Portfolio links
         ]
-        
+
         # If content contains multiple contact indicators, likely contact info
         indicator_count = sum(1 for indicator in contact_indicators if indicator in content)
-        
+
         # Contact info typically has multiple indicators (email + phone + links)
         return indicator_count >= 2
